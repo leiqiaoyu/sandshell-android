@@ -1,0 +1,53 @@
+Debian Mobile — NOTICE
+======================
+
+This project incorporates and redistributes software from the following
+upstreams. Attribution is given here at component level; per-file license
+headers inside the corresponding sources remain authoritative.
+
+Termux
+------
+The terminal UI, session layer and application scaffolding (`com.termux.*`)
+are derived from Termux v0.118.3, including the `termux-shared`,
+`terminal-emulator` and `terminal-view` components.
+License: GPL-3.0-only (see LICENSE in this repository).
+Upstream: https://github.com/termux/termux-app
+
+Android Open Source Project / Jetpack
+-------------------------------------
+The APK bundles AndroidX libraries (appcompat, core, fragment, preference,
+recyclerview, viewpager2, window, etc.), Google Material Components, and the
+Kotlin standard library plus kotlinx-coroutines (see `META-INF/*.version`
+inside the APK for the exact component list).
+License: Apache-2.0.
+Upstream: https://source.android.com / https://github.com/JetBrains/kotlin
+
+Apache Commons IO
+-----------------
+Used for stream utilities in the validation layer (`org.apache.commons.io`).
+License: Apache-2.0.
+Upstream: https://commons.apache.org/proper/commons-io/
+
+Debian
+------
+The bundled rootfs asset is a Debian Bullseye (ARM64) minbase archive. The
+Debian trademark is not affiliated with, and does not endorse, this project.
+Individual Debian packages carry their own copyright and license terms as
+recorded in the Debian archive.
+Upstream: https://www.debian.org
+
+BusyBox
+-------
+A static BusyBox provides the audited applet backstop inside the rootfs.
+License: GPL-2.0 (the upstream project's own terms; BusyBox sources are
+available from https://busybox.net).
+
+musl libc
+---------
+Bundled experimental Node helper assets reference musl libc builds.
+License: MIT.
+Upstream: https://musl.libc.org
+
+Debian Mobile is an independent experimental project. It is not affiliated
+with, endorsed by, or sponsored by Debian, Termux, the Android Open Source
+Project, or any OEM.

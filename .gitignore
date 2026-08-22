@@ -1,0 +1,15 @@
+# signing keys never enter the repository
+*.jks
+*.keystore
+*.pem
+*.p12
+release-keys/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*~
+
+# python
+__pycache__/
+*.pyc

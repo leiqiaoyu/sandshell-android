@@ -18,6 +18,7 @@
 ```text
 parts/
 ├── README.md          ← 本文件
+├── apks/              ← 工程 APK 上传区（Part 1–90 各阶段构建产物，约定见 apks/README.md）
 ├── part-01..part-90   ← 里程碑文档与小型附件
 └── index.md           ← （维护者生成）Part 1–90 总索引
 ```

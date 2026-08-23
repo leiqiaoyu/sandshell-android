@@ -164,7 +164,7 @@ Debian Mobile does not bundle Node.js and does not promise it. Official glibc No
 
 ## The Hard Problems
 
-The rest of this README is the part we are actually proud of. Each case below follows the same format: what we saw, what we wrongly believed at first, what was actually true, and the lesson that survived. These are engineering case files, not feature claims; several of them ended in "frozen, unfinished", and we say so.
+The rest of this README is the part we are actually proud of. Each case below follows the same format: what we saw, what we wrongly believed at first, what was actually true, and the lesson that survived. These are engineering case files, not feature claims; several of them ended in "frozen, unfinished", and we say so. The case files tell the full stories; a one-line quick-reference version of every pitfall lives in the [pitfall guide](docs/pitfalls.md).
 
 ### Case 1: Three Rats and One Shim
 

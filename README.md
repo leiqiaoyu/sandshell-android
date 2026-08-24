@@ -24,6 +24,7 @@ Everything claimed in this README is backed by exit codes from a physical device
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
+- [Trademarks](#trademarks)
 - [Upstream Lineage](#upstream-lineage)
 
 ## What This Is
@@ -322,6 +323,12 @@ Issues should include: device model and Android/OEM version, the exact command, 
 This is a derivation fact, not a preference: the terminal UI and session layer descend from Termux v0.118.3, whose license files (`termux_01183_full_ui/LICENSE.md` and `termux-shared/LICENSE.md`) are GPLv3-only. A derivative of GPLv3-only code cannot ship under a weaker umbrella, so the root license of this repository and of every release APK is GPL-3.0-only, and original contributions are accepted under the same terms.
 
 See `LICENSE` for the full text and `NOTICE` for the upstream attribution inventory (Termux lineage, terminal-view/terminal-emulator components, AndroidX/Material/Kotlin runtime dependencies, Debian rootfs redistribution notes). Relicensing the tree to MIT or Apache-2.0 is not on the table; contributions that attempt it will be declined.
+
+## Trademarks
+
+Debian and the Debian swirl are trademarks of Software in the Public Interest, Inc. The application's launcher icon is the Debian swirl, Copyright (c) 1999 Software in the Public Interest, Inc., used with attribution under the Debian Open Use Logo license (LGPL-3.0-or-later, or CC-BY-SA-3.0 at option; see `NOTICE`).
+
+Debian Mobile is not affiliated with Debian. Debian is a registered trademark owned by Software in the Public Interest, Inc.
 
 ## Upstream Lineage
 

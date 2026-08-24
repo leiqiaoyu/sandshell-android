@@ -24,6 +24,7 @@ Debian Mobile 在一个普通的、无特权的 Android 应用沙盒里运行真
 - [路线图](#路线图)
 - [贡献指南](#贡献指南)
 - [开源协议](#开源协议)
+- [商标](#商标)
 - [上游血统](#上游血统)
 
 ## 这是什么
@@ -322,6 +323,12 @@ Issue 请包含：设备型号与 Android/OEM 版本、精确命令、完整 std
 这是衍生关系的事实认定，不是偏好选择：终端 UI 与会话层源自 Termux v0.118.3，其许可证文件（`termux_01183_full_ui/LICENSE.md` 与 `termux-shared/LICENSE.md`）均为 GPLv3-only。GPLv3-only 代码的衍生作品不能以更弱的许可证整体发布，因此本仓库与每一个发行版 APK 的根许可证都是 GPL-3.0-only，原创贡献也按同一条款接收。
 
 全文见 `LICENSE`，上游署名清单（Termux 血统、terminal-view/terminal-emulator 组件、AndroidX/Material/Kotlin 运行时依赖、Debian rootfs 再分发说明）见 `NOTICE`。把源码树改标 MIT 或 Apache-2.0 不在选项之内；尝试这么做的贡献会被拒绝。
+
+## 商标
+
+Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商标。本应用的启动器图标为 Debian 漩涡，版权所有 (c) 1999 Software in the Public Interest, Inc.，按 Debian 开放使用标志许可（LGPL-3.0-or-later 或 CC-BY-SA-3.0，二选一）署名使用，详见 `NOTICE`。
+
+Debian Mobile 与 Debian 无隶属关系。Debian 是 Software in the Public Interest, Inc. 拥有的注册商标。
 
 ## 上游血统
 

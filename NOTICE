@@ -38,11 +38,11 @@ Upstream: https://www.debian.org
 
 Debian swirl logo
 -----------------
-The application's launcher icon is the Debian swirl. Copyright (c) 1999
-Software in the Public Interest, Inc. Used with attribution under the Debian
-Open Use Logo license (LGPL-3.0-or-later, or CC-BY-SA-3.0 at option).
-"Debian" and the Debian swirl are trademarks of Software in the Public
-Interest, Inc.; this project is not affiliated with or endorsed by Debian.
+No longer used. The v0.1 build briefly used the Debian swirl as its launcher
+icon; the Debian trademark team declined permission on 2026-08-28, and the
+icon was retired together with the v0.1 release. "Debian" and the Debian
+swirl are trademarks of Software in the Public Interest, Inc.; this project
+is not affiliated with or endorsed by Debian.
 Reference: https://www.debian.org/logos
 
 BusyBox

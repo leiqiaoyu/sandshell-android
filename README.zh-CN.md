@@ -4,6 +4,8 @@
 
 [English](README.md) | **简体中文**
 
+> **2026-08-28 — 更名进行中，发行版已撤回。** Debian 商标团队拒绝了本项目的商标使用申请：应用名 "Debian Mobile"、Debian 漩涡启动器图标、`com.debian.*` 包名均未获授权。v0.1 发行版与 dev-archive 已撤下，发行 APK 已从本仓库移除，公开分发即刻停止。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。项目将更名后重新发布，见 [docs/trademark.md](docs/trademark.md)。
+
 Debian Mobile 在一个普通的、无特权的 Android 应用沙盒里运行真正的 Debian Bullseye（ARM64）用户态。不需要 Root，不用 PRoot，不把 ptrace 作为运行时核心，没有虚拟机，也不改内核：只有一个 Android 应用、一个 seccomp `USER_NOTIF` 监督进程，和一套被小心翼翼调解着的、放在应用私有目录里的 Debian rootfs。
 
 这件事有趣的地方不是"把 Debian 目录解压到手机上"，任何人都能做到这一点。有趣的地方在于：Debian 进程坚信自己活在 `/usr/bin`，而内核坚持认为它活在 `/data/user/0/<package>/files/debian/usr/bin`，双方都不肯让步。Debian Mobile 用一层刻意保持轻薄、可审计、并对自身边界诚实的兼容层化解了这场对峙：监督进程拦截选定的路径类系统调用，把 Debian 的逻辑路径翻译成应用私有 rootfs 里的物理路径，再把文件描述符注回 Debian 子进程。Android 继承下来的安全策略，包括 OEM 出厂的每一条 `KILL` 规则，原封不动地继续生效。我们把这当作特性，而不是障碍。
@@ -130,7 +132,7 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 
 ## 安装与使用
 
-从 [v0.1 发行版](https://github.com/leiqiaoyu/debian-mobile/releases/tag/v0.1) 安装发行 APK：`debian-mobile-v0.1-arm64-v8a.apk`，SHA-256 `b8c6ae5cf6be04511e5ba13d1e66c0c88a7480d5bdf7226c0f2dc8a8ffa4dfc0`。
+**v0.1 发行版已撤回（2026-08-28）。** Debian 商标团队拒绝了应用名 "Debian Mobile"、Debian 漩涡图标与包名 `com.debian.runtime`，已发布的构建不再分发，原件由维护者离线保存。更名重构后的新构建将接替它，届时本节将重写。
 
 v0.1 是经过真机验证的 Part58 构建，并完成了发布卫生处理：移除 debug 标记、权限从 15 项收敛到 8 项、禁用外部命令 API、更换全新签名密钥。由于签名密钥已轮换，安装前请先卸载旧的开发版——应用使用 `sharedUserId`，Android 会拒绝跨签名的覆盖升级。
 
@@ -326,9 +328,11 @@ Issue 请包含：设备型号与 Android/OEM 版本、精确命令、完整 std
 
 ## 商标
 
-Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商标。本应用的启动器图标为 Debian 漩涡，版权所有 (c) 1999 Software in the Public Interest, Inc.，按 Debian 开放使用标志许可（LGPL-3.0-or-later 或 CC-BY-SA-3.0，二选一）署名使用，详见 `NOTICE`。
+Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商标。2026-08-24，本项目就应用名、Debian 漩涡启动器图标与包名 `com.debian.runtime` 提交了使用申请；2026-08-28，Debian 商标团队**三项全部拒绝**。作为回应，v0.1 发行版与 dev-archive 当日撤下，发行 APK 已从仓库移除，项目正在更名——漩涡图标不会再被使用。
 
-Debian Mobile 与 Debian 无隶属关系。Debian 是 Software in the Public Interest, Inc. 拥有的注册商标。
+仍然被允许且继续依赖的使用方式：如实、不误导地声明"本应用使用了 Debian 用户态的组成部分"（它运行未经修改的 Debian Bullseye ARM64 rootfs），这属于 Debian 商标政策 "When You Can Use the Debian Trademarks Without Asking Permission" 一节覆盖的说明性使用。本项目与 Debian 无隶属关系，也不代表 Debian。
+
+往来记录与整改方案见 [docs/trademark.md](docs/trademark.md)。
 
 ## 上游血统
 

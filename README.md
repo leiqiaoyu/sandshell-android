@@ -4,6 +4,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+> **2026-08-28 — Rename in progress, release withdrawn.** The Debian trademark team has declined this project's trademark request: the "Debian Mobile" name, the Debian swirl launcher icon, and the `com.debian.*` package namespace are not permitted. The v0.1 release and the dev-archive have been withdrawn, and the release APK has been removed from this repository. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. The project will re-release under a new name. See [docs/trademark.md](docs/trademark.md).
+
 Debian Mobile runs a real Debian Bullseye (ARM64) userland inside an ordinary, unprivileged Android application sandbox. No root, no PRoot, no ptrace as the runtime core, no virtual machine, and no kernel modification: just an Android app, a seccomp `USER_NOTIF` supervisor, and a carefully mediated Debian rootfs that lives in the app's private storage.
 
 The interesting problem here is not "unzip a Debian directory onto a phone". Anyone can do that. The interesting problem is that a Debian process believes it lives at `/usr/bin`, while the kernel insists it lives at `/data/user/0/<package>/files/debian/usr/bin`, and neither side is willing to compromise. Debian Mobile resolves this standoff with a compatibility layer that is deliberately thin, auditable, and honest about its own limits: a supervisor process intercepts selected path-related syscalls, translates logical Debian paths into physical paths inside an app-private rootfs, and injects the resulting file descriptors back into the Debian child. Android's inherited security policy, including every `KILL` rule the OEM shipped, remains fully in force. We treat that as a feature, not an obstacle.
@@ -130,7 +132,7 @@ When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` pat
 
 ## Getting Started
 
-Install the release APK from the [v0.1 release](https://github.com/leiqiaoyu/debian-mobile/releases/tag/v0.1): `debian-mobile-v0.1-arm64-v8a.apk`, SHA-256 `b8c6ae5cf6be04511e5ba13d1e66c0c88a7480d5bdf7226c0f2dc8a8ffa4dfc0`.
+**The v0.1 release is withdrawn (2026-08-28).** The Debian trademark team declined the "Debian Mobile" name, the Debian swirl icon, and the `com.debian.runtime` package name, so the published build can no longer be distributed; the maintainer preserves it offline. A renamed, re-identified build will take its place, and this section will be rewritten when it ships.
 
 v0.1 is the device-validated Part58 build with release hygiene applied: debug flag removed, permissions cut from 15 to 8, the external command API disabled, and a fresh signing key. Because the signing key rotated, uninstall any older development build first — the app uses `sharedUserId`, and Android rejects cross-signature upgrades.
 
@@ -326,9 +328,11 @@ See `LICENSE` for the full text and `NOTICE` for the upstream attribution invent
 
 ## Trademarks
 
-Debian and the Debian swirl are trademarks of Software in the Public Interest, Inc. The application's launcher icon is the Debian swirl, Copyright (c) 1999 Software in the Public Interest, Inc., used with attribution under the Debian Open Use Logo license (LGPL-3.0-or-later, or CC-BY-SA-3.0 at option; see `NOTICE`).
+Debian and the Debian swirl are trademarks of Software in the Public Interest, Inc. On 2026-08-24 this project requested permission for the application name, the Debian swirl launcher icon, and the `com.debian.runtime` package name; on 2026-08-28 the Debian trademark team declined all three. In response, the v0.1 release and the dev-archive were withdrawn the same day, the release APK was removed from the repository, and the project is renaming — the swirl icon will not be used again.
 
-Debian Mobile is not affiliated with Debian. Debian is a registered trademark owned by Software in the Public Interest, Inc.
+What remains permitted, and relied upon: honest, non-misleading statements that the application uses parts of the Debian userland (it runs an unmodified Debian Bullseye ARM64 rootfs), per the "When You Can Use the Debian Trademarks Without Asking Permission" section of the Debian trademark policy. This project is not affiliated with Debian and does not represent Debian.
+
+The correspondence record and remediation plan live in [docs/trademark.md](docs/trademark.md).
 
 ## Upstream Lineage
 

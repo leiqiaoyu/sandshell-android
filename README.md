@@ -1,14 +1,14 @@
-# Debian Mobile
+# Sandshell
 
 ![Platform](https://img.shields.io/badge/platform-Android%2016%2B-3ddc84) ![Arch](https://img.shields.io/badge/arch-AArch64-blue) ![Base](https://img.shields.io/badge/Debian-Bullseye%20ARM64-A80030) ![Root](https://img.shields.io/badge/root-not%20required-brightgreen) ![Runtime](https://img.shields.io/badge/runtime-no%20PRoot%20%2F%20no%20ptrace%20core-orange) ![Validation](https://img.shields.io/badge/device%20validation-18%2F18%20passed-success)
 
 **English** | [简体中文](README.zh-CN.md)
 
-> **2026-08-28 — Rename in progress, release withdrawn.** The Debian trademark team has declined this project's trademark request: the "Debian Mobile" name, the Debian swirl launcher icon, and the `com.debian.*` package namespace are not permitted. The v0.1 release and the dev-archive have been withdrawn, and the release APK has been removed from this repository. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. The project will re-release under a new name. See [docs/trademark.md](docs/trademark.md).
+> **2026-09-13 — Renamed to Sandshell.** The Debian trademark team declined this project's previous name ("Debian Mobile"), the Debian swirl launcher icon, and the `com.debian.*` package namespace (2026-08-28); the v0.1 release and the dev-archive were withdrawn the same day. The project is now renamed **Sandshell** (`dev.sandshell.core`), and a re-identified v0.1 build is ready, pending device regression before re-release. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. See [docs/trademark.md](docs/trademark.md).
 
-Debian Mobile runs a real Debian Bullseye (ARM64) userland inside an ordinary, unprivileged Android application sandbox. No root, no PRoot, no ptrace as the runtime core, no virtual machine, and no kernel modification: just an Android app, a seccomp `USER_NOTIF` supervisor, and a carefully mediated Debian rootfs that lives in the app's private storage.
+Sandshell runs a real Debian Bullseye (ARM64) userland inside an ordinary, unprivileged Android application sandbox. No root, no PRoot, no ptrace as the runtime core, no virtual machine, and no kernel modification: just an Android app, a seccomp `USER_NOTIF` supervisor, and a carefully mediated Debian rootfs that lives in the app's private storage.
 
-The interesting problem here is not "unzip a Debian directory onto a phone". Anyone can do that. The interesting problem is that a Debian process believes it lives at `/usr/bin`, while the kernel insists it lives at `/data/user/0/<package>/files/debian/usr/bin`, and neither side is willing to compromise. Debian Mobile resolves this standoff with a compatibility layer that is deliberately thin, auditable, and honest about its own limits: a supervisor process intercepts selected path-related syscalls, translates logical Debian paths into physical paths inside an app-private rootfs, and injects the resulting file descriptors back into the Debian child. Android's inherited security policy, including every `KILL` rule the OEM shipped, remains fully in force. We treat that as a feature, not an obstacle.
+The interesting problem here is not "unzip a Debian directory onto a phone". Anyone can do that. The interesting problem is that a Debian process believes it lives at `/usr/bin`, while the kernel insists it lives at `/data/user/0/<package>/files/debian/usr/bin`, and neither side is willing to compromise. Sandshell resolves this standoff with a compatibility layer that is deliberately thin, auditable, and honest about its own limits: a supervisor process intercepts selected path-related syscalls, translates logical Debian paths into physical paths inside an app-private rootfs, and injects the resulting file descriptors back into the Debian child. Android's inherited security policy, including every `KILL` rule the OEM shipped, remains fully in force. We treat that as a feature, not an obstacle.
 
 Everything claimed in this README is backed by exit codes from a physical device. If a feature is not listed as verified, assume it is not verified. That discipline cost us 90 "Parts" of debugging, and it is the most reusable thing this project produces.
 
@@ -31,11 +31,11 @@ Everything claimed in this README is backed by exit codes from a physical device
 
 ## What This Is
 
-Debian Mobile is an experimental, lightweight Debian ARM64 runtime for a constrained Android application domain. It starts a Debian ELF loader directly from the app's `nativeLibraryDir` (which Android permits apps to execute), then mediates selected absolute-path operations so that the Debian userland can function against a rootfs stored under the app's private files directory.
+Sandshell is an experimental, lightweight Debian ARM64 runtime for a constrained Android application domain. It starts a Debian ELF loader directly from the app's `nativeLibraryDir` (which Android permits apps to execute), then mediates selected absolute-path operations so that the Debian userland can function against a rootfs stored under the app's private files directory.
 
 Compared with the usual approaches:
 
-| Approach | How it fakes `/` | What Debian Mobile does instead |
+| Approach | How it fakes `/` | What Sandshell does instead |
 |---|---|---|
 | Root + `chroot` | Kernel-level namespace switch | Rejected: requires root |
 | PRoot | `ptrace` syscall rewriting | Rejected: ptrace as runtime core is slow, fragile on OEM kernels, and against project principles |
@@ -45,7 +45,7 @@ The terminal UI descends from the official Termux v0.118.3 codebase, adapted for
 
 ### Scope statement
 
-Debian Mobile is a terminal runtime with a bounded compatibility layer. It is not a general-purpose container, not a root tool, not a security bypass, and not a complete Termux replacement. The set of working commands is exactly the set that has passed device-side verification, listed below.
+Sandshell is a terminal runtime with a bounded compatibility layer. It is not a general-purpose container, not a root tool, not a security bypass, and not a complete Termux replacement. The set of working commands is exactly the set that has passed device-side verification, listed below.
 
 ## Verified Capabilities
 
@@ -67,7 +67,7 @@ Explicitly not verified and not claimed: full GNU coreutils coverage, arbitrary 
 
 ```mermaid
 flowchart LR
-    U[User types a command in the Debian Mobile terminal] --> J[Java UI and PTY session layer]
+    U[User types a command in the Sandshell terminal] --> J[Java UI and PTY session layer]
     J --> L[Debian ELF loader executed from app nativeLibraryDir]
     L --> C[Debian child process]
     C --> S[seccomp USER_NOTIF filter]
@@ -82,7 +82,7 @@ flowchart LR
 
 ### Entry point: direct loader execution
 
-Android allows an app to execute an ELF that ships in its native library directory. Debian Mobile exploits this as the single sanctioned entry: the Debian AArch64 dynamic loader is packaged as an app library and executed directly. Nothing runs from `memfd`, and no arbitrary Android-side ELF is ever executed as Debian.
+Android allows an app to execute an ELF that ships in its native library directory. Sandshell exploits this as the single sanctioned entry: the Debian AArch64 dynamic loader is packaged as an app library and executed directly. Nothing runs from `memfd`, and no arbitrary Android-side ELF is ever executed as Debian.
 
 ### Path virtualization via seccomp USER_NOTIF
 
@@ -132,11 +132,11 @@ When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` pat
 
 ## Getting Started
 
-**The v0.1 release is withdrawn (2026-08-28).** The Debian trademark team declined the "Debian Mobile" name, the Debian swirl icon, and the `com.debian.runtime` package name, so the published build can no longer be distributed; the maintainer preserves it offline. A renamed, re-identified build will take its place, and this section will be rewritten when it ships.
+**The v0.1 release is withdrawn (2026-08-28) and re-released as Sandshell (2026-09-13).** The Debian trademark team declined the "Debian Mobile" name, the Debian swirl icon, and the `com.debian.runtime` package name, so the old build can no longer be distributed; the maintainer preserves it offline. The renamed build ships as **Sandshell** (`dev.sandshell.core`), with a new signing key and the same verified runtime.
 
 v0.1 is the device-validated Part58 build with release hygiene applied: debug flag removed, permissions cut from 15 to 8, the external command API disabled, and a fresh signing key. Because the signing key rotated, uninstall any older development build first — the app uses `sharedUserId`, and Android rejects cross-signature upgrades.
 
-The interop folder (`/storage/emulated/0/Debian-mobile` on the Android side, `/mnt/sdcard` inside Debian) is kept; enable "All files access" for the app in system settings once, and the bridge works as in Part58.
+The interop folder (`/storage/emulated/0/sandshell-ext` on the Android side, `/mnt/sdcard` inside Debian) is kept; enable "All files access" for the app in system settings once, and the bridge works as in Part58.
 
 ### Requirements
 
@@ -163,7 +163,7 @@ Every command above has a real-device exit code 0 on record. Commands outside th
 
 ### About Node.js
 
-Debian Mobile does not bundle Node.js and does not promise it. Official glibc Node builds die under inherited seccomp on the tested device class (see [case file 3](#case-3-the-node-wall-and-the-musl-detour)). A user-supplied musl Node 22, imported into `/usr/local/node-musl` and dispatched through the runtime's precise loader routing, has passed minimal commands (`node --version`, a JS one-liner, `npm --version`) on the target device. This is documented as an experimental capability of the dispatch mechanism, not as a supported Node platform: full npm lifecycles and global package installs remain unverified and are known to walk through several landmines described in the case files below.
+Sandshell does not bundle Node.js and does not promise it. Official glibc Node builds die under inherited seccomp on the tested device class (see [case file 3](#case-3-the-node-wall-and-the-musl-detour)). A user-supplied musl Node 22, imported into `/usr/local/node-musl` and dispatched through the runtime's precise loader routing, has passed minimal commands (`node --version`, a JS one-liner, `npm --version`) on the target device. This is documented as an experimental capability of the dispatch mechanism, not as a supported Node platform: full npm lifecycles and global package installs remain unverified and are known to walk through several landmines described in the case files below.
 
 ## The Hard Problems
 
@@ -328,7 +328,7 @@ See `LICENSE` for the full text and `NOTICE` for the upstream attribution invent
 
 ## Trademarks
 
-Debian and the Debian swirl are trademarks of Software in the Public Interest, Inc. On 2026-08-24 this project requested permission for the application name, the Debian swirl launcher icon, and the `com.debian.runtime` package name; on 2026-08-28 the Debian trademark team declined all three. In response, the v0.1 release and the dev-archive were withdrawn the same day, the release APK was removed from the repository, and the project is renaming — the swirl icon will not be used again.
+Debian and the Debian swirl are trademarks of Software in the Public Interest, Inc. On 2026-08-24 this project requested permission for the application name, the Debian swirl launcher icon, and the `com.debian.runtime` package name; on 2026-08-28 the Debian trademark team declined all three. In response, the v0.1 release and the dev-archive were withdrawn the same day, the release APK was removed from the repository, and the project renamed to **Sandshell** — the swirl icon will not be used again.
 
 What remains permitted, and relied upon: honest, non-misleading statements that the application uses parts of the Debian userland (it runs an unmodified Debian Bullseye ARM64 rootfs), per the "When You Can Use the Debian Trademarks Without Asking Permission" section of the Debian trademark policy. This project is not affiliated with Debian and does not represent Debian.
 
@@ -341,4 +341,4 @@ The correspondence record and remediation plan live in [docs/trademark.md](docs/
 - **BusyBox**: the static applet backstop for the audited command set.
 - **musl libc**: the detour that made a living Node possible on this device class.
 
-Debian Mobile is an independent experimental project. It is not affiliated with, endorsed by, or endorsed by Debian, Termux, or any OEM.
+Sandshell is an independent experimental project. It is not affiliated with, endorsed by, or endorsed by Debian, Termux, or any OEM.

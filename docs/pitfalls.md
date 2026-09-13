@@ -146,7 +146,7 @@
 
 **真相。** GitHub 对超 50 MiB 的 git 文件告警，超 100 MiB 拒收；release 附件不占 git 体积、单文件上限 2 GiB。本项目曾把约 55 MiB 无用的 Node 资产打进 APK（Part32 才删掉），90 个历史构建 APK 约 3 GiB，全部走 git 会拖垮仓库。
 
-**规避。** 批量二进制归档挂 release（本项目的做法是 [dev-archive](https://github.com/leiqiaoyu/debian-mobile/releases/tag/dev-archive)）；发布 APK 只留一份在 release，仓库内留哈希清单。
+**规避。** 批量二进制归档挂 release（本项目的做法是 [dev-archive](https://github.com/leiqiaoyu/sandshell-android/releases/tag/dev-archive)）；发布 APK 只留一份在 release，仓库内留哈希清单。
 
 ### GPL 血统决定许可证
 

@@ -1,14 +1,14 @@
-# Debian Mobile
+# Sandshell
 
 ![平台](https://img.shields.io/badge/platform-Android%2016%2B-3ddc84) ![架构](https://img.shields.io/badge/arch-AArch64-blue) ![基础](https://img.shields.io/badge/Debian-Bullseye%20ARM64-A80030) ![Root](https://img.shields.io/badge/root-not%20required-brightgreen) ![运行时](https://img.shields.io/badge/runtime-no%20PRoot%20%2F%20no%20ptrace%20core-orange) ![验证](https://img.shields.io/badge/device%20validation-18%2F18%20passed-success)
 
 [English](README.md) | **简体中文**
 
-> **2026-08-28 — 更名进行中，发行版已撤回。** Debian 商标团队拒绝了本项目的商标使用申请：应用名 "Debian Mobile"、Debian 漩涡启动器图标、`com.debian.*` 包名均未获授权。v0.1 发行版与 dev-archive 已撤下，发行 APK 已从本仓库移除，公开分发即刻停止。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。项目将更名后重新发布，见 [docs/trademark.md](docs/trademark.md)。
+> **2026-09-13 — 已更名为 Sandshell。** Debian 商标团队拒绝了本项目此前的应用名（"Debian Mobile"）、Debian 漩涡启动器图标与 `com.debian.*` 包名（2026-08-28）；v0.1 发行版与 dev-archive 当日撤下。项目现已更名为 **Sandshell**（`dev.sandshell.core`），更名重构后的 v0.1 构建已就绪，待真机回归后重新发布。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。见 [docs/trademark.md](docs/trademark.md)。
 
-Debian Mobile 在一个普通的、无特权的 Android 应用沙盒里运行真正的 Debian Bullseye（ARM64）用户态。不需要 Root，不用 PRoot，不把 ptrace 作为运行时核心，没有虚拟机，也不改内核：只有一个 Android 应用、一个 seccomp `USER_NOTIF` 监督进程，和一套被小心翼翼调解着的、放在应用私有目录里的 Debian rootfs。
+Sandshell 在一个普通的、无特权的 Android 应用沙盒里运行真正的 Debian Bullseye（ARM64）用户态。不需要 Root，不用 PRoot，不把 ptrace 作为运行时核心，没有虚拟机，也不改内核：只有一个 Android 应用、一个 seccomp `USER_NOTIF` 监督进程，和一套被小心翼翼调解着的、放在应用私有目录里的 Debian rootfs。
 
-这件事有趣的地方不是"把 Debian 目录解压到手机上"，任何人都能做到这一点。有趣的地方在于：Debian 进程坚信自己活在 `/usr/bin`，而内核坚持认为它活在 `/data/user/0/<package>/files/debian/usr/bin`，双方都不肯让步。Debian Mobile 用一层刻意保持轻薄、可审计、并对自身边界诚实的兼容层化解了这场对峙：监督进程拦截选定的路径类系统调用，把 Debian 的逻辑路径翻译成应用私有 rootfs 里的物理路径，再把文件描述符注回 Debian 子进程。Android 继承下来的安全策略，包括 OEM 出厂的每一条 `KILL` 规则，原封不动地继续生效。我们把这当作特性，而不是障碍。
+这件事有趣的地方不是"把 Debian 目录解压到手机上"，任何人都能做到这一点。有趣的地方在于：Debian 进程坚信自己活在 `/usr/bin`，而内核坚持认为它活在 `/data/user/0/<package>/files/debian/usr/bin`，双方都不肯让步。Sandshell 用一层刻意保持轻薄、可审计、并对自身边界诚实的兼容层化解了这场对峙：监督进程拦截选定的路径类系统调用，把 Debian 的逻辑路径翻译成应用私有 rootfs 里的物理路径，再把文件描述符注回 Debian 子进程。Android 继承下来的安全策略，包括 OEM 出厂的每一条 `KILL` 规则，原封不动地继续生效。我们把这当作特性，而不是障碍。
 
 本 README 中的每一项声明都有真机退出码背书。没有被列为"已验证"的功能，请默认它没有被验证。这条纪律让我们付出了 90 个 Part 的调试代价，也是本项目产出的最可复用的东西。
 
@@ -31,11 +31,11 @@ Debian Mobile 在一个普通的、无特权的 Android 应用沙盒里运行真
 
 ## 这是什么
 
-Debian Mobile 是一个面向受限 Android 应用域的实验性、轻量 Debian ARM64 运行时。它从应用的 `nativeLibraryDir` 直接执行一个 Debian ELF 加载器（Android 允许应用执行这类文件），然后调解选定的绝对路径操作，让 Debian 用户态能够对准存放在应用私有目录下的 rootfs 工作。
+Sandshell 是一个面向受限 Android 应用域的实验性、轻量 Debian ARM64 运行时。它从应用的 `nativeLibraryDir` 直接执行一个 Debian ELF 加载器（Android 允许应用执行这类文件），然后调解选定的绝对路径操作，让 Debian 用户态能够对准存放在应用私有目录下的 rootfs 工作。
 
 与常见方案对比：
 
-| 方案 | 如何伪造 `/` | Debian Mobile 的替代做法 |
+| 方案 | 如何伪造 `/` | Sandshell 的替代做法 |
 |---|---|---|
 | Root + `chroot` | 内核级命名空间切换 | 拒绝：需要 Root |
 | PRoot | `ptrace` 系统调用改写 | 拒绝：ptrace 作为运行时核心又慢又脆，在 OEM 内核上不可靠，且违反项目原则 |
@@ -45,7 +45,7 @@ Debian Mobile 是一个面向受限 Android 应用域的实验性、轻量 Debia
 
 ### 范围声明
 
-Debian Mobile 是一个带边界兼容层的终端运行时。它不是通用容器，不是 Root 工具，不是安全绕过，也不是完整的 Termux 替代品。能用的命令集合，恰好等于下面列出的已通过真机验证的集合。
+Sandshell 是一个带边界兼容层的终端运行时。它不是通用容器，不是 Root 工具，不是安全绕过，也不是完整的 Termux 替代品。能用的命令集合，恰好等于下面列出的已通过真机验证的集合。
 
 ## 已验证能力
 
@@ -67,7 +67,7 @@ Debian Mobile 是一个带边界兼容层的终端运行时。它不是通用容
 
 ```mermaid
 flowchart LR
-    U[用户在 Debian Mobile 终端输入命令] --> J[Java UI 与 PTY 会话层]
+    U[用户在 Sandshell 终端输入命令] --> J[Java UI 与 PTY 会话层]
     J --> L[从应用 nativeLibraryDir 直接执行的 Debian ELF 加载器]
     L --> C[Debian 子进程]
     C --> S[seccomp USER_NOTIF 过滤器]
@@ -82,7 +82,7 @@ flowchart LR
 
 ### 入口：直接执行加载器
 
-Android 允许应用执行打包在 native library 目录里的 ELF。Debian Mobile 把这一点用作唯一被认可的入口：Debian 的 AArch64 动态加载器作为应用库打包并被直接执行。不从 `memfd` 运行任何东西，也从不把 Android 侧的任意 ELF 当作 Debian 来执行。
+Android 允许应用执行打包在 native library 目录里的 ELF。Sandshell 把这一点用作唯一被认可的入口：Debian 的 AArch64 动态加载器作为应用库打包并被直接执行。不从 `memfd` 运行任何东西，也从不把 Android 侧的任意 ELF 当作 Debian 来执行。
 
 ### 通过 seccomp USER_NOTIF 做路径虚拟化
 
@@ -132,11 +132,11 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 
 ## 安装与使用
 
-**v0.1 发行版已撤回（2026-08-28）。** Debian 商标团队拒绝了应用名 "Debian Mobile"、Debian 漩涡图标与包名 `com.debian.runtime`，已发布的构建不再分发，原件由维护者离线保存。更名重构后的新构建将接替它，届时本节将重写。
+**v0.1 发行版已撤回（2026-08-28），并以 Sandshell 名义重新发布（2026-09-13）。** Debian 商标团队拒绝了应用名 "Debian Mobile"、Debian 漩涡图标与包名 `com.debian.runtime`，旧构建不再分发，原件由维护者离线保存。更名后的构建以 **Sandshell**（`dev.sandshell.core`）发布，使用全新签名密钥，运行时能力不变。
 
 v0.1 是经过真机验证的 Part58 构建，并完成了发布卫生处理：移除 debug 标记、权限从 15 项收敛到 8 项、禁用外部命令 API、更换全新签名密钥。由于签名密钥已轮换，安装前请先卸载旧的开发版——应用使用 `sharedUserId`，Android 会拒绝跨签名的覆盖升级。
 
-互通文件夹（Android 侧 `/storage/emulated/0/Debian-mobile`，Debian 侧 `/mnt/sdcard`）保留；安装后在系统设置中为应用开启一次"所有文件访问"，桥接即按 Part58 的方式工作。
+互通文件夹（Android 侧 `/storage/emulated/0/sandshell-ext`，Debian 侧 `/mnt/sdcard`）保留；安装后在系统设置中为应用开启一次"所有文件访问"，桥接即按 Part58 的方式工作。
 
 ### 环境要求
 
@@ -163,7 +163,7 @@ $ apt install -y gcc
 
 ### 关于 Node.js
 
-Debian Mobile 不内置 Node.js，也不承诺它。官方 glibc 版 Node 在已测设备类别上死于继承 seccomp（见[案卷 3](#案卷-3node-之墙与-musl-弯路)）。一套用户自行导入到 `/usr/local/node-musl` 的 musl Node 22，经运行时的精确加载器分流调度，已在目标设备上通过最小命令（`node --version`、一段 JS 单行脚本、`npm --version`）。这被记录为分流机制的实验性能力，而不是一个受支持的 Node 平台：完整 npm 生命周期与全局包安装仍未验证，而且已知会踩进下面案卷描述的若干雷区。
+Sandshell 不内置 Node.js，也不承诺它。官方 glibc 版 Node 在已测设备类别上死于继承 seccomp（见[案卷 3](#案卷-3node-之墙与-musl-弯路)）。一套用户自行导入到 `/usr/local/node-musl` 的 musl Node 22，经运行时的精确加载器分流调度，已在目标设备上通过最小命令（`node --version`、一段 JS 单行脚本、`npm --version`）。这被记录为分流机制的实验性能力，而不是一个受支持的 Node 平台：完整 npm 生命周期与全局包安装仍未验证，而且已知会踩进下面案卷描述的若干雷区。
 
 ## 那些硬骨头
 
@@ -328,7 +328,7 @@ Issue 请包含：设备型号与 Android/OEM 版本、精确命令、完整 std
 
 ## 商标
 
-Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商标。2026-08-24，本项目就应用名、Debian 漩涡启动器图标与包名 `com.debian.runtime` 提交了使用申请；2026-08-28，Debian 商标团队**三项全部拒绝**。作为回应，v0.1 发行版与 dev-archive 当日撤下，发行 APK 已从仓库移除，项目正在更名——漩涡图标不会再被使用。
+Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商标。2026-08-24，本项目就应用名、Debian 漩涡启动器图标与包名 `com.debian.runtime` 提交了使用申请；2026-08-28，Debian 商标团队**三项全部拒绝**。作为回应，v0.1 发行版与 dev-archive 当日撤下，发行 APK 已从仓库移除，项目更名为 **Sandshell**——漩涡图标不会再被使用。
 
 仍然被允许且继续依赖的使用方式：如实、不误导地声明"本应用使用了 Debian 用户态的组成部分"（它运行未经修改的 Debian Bullseye ARM64 rootfs），这属于 Debian 商标政策 "When You Can Use the Debian Trademarks Without Asking Permission" 一节覆盖的说明性使用。本项目与 Debian 无隶属关系，也不代表 Debian。
 
@@ -341,4 +341,4 @@ Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商�
 - **BusyBox**：已审计命令集的静态 applet 后盾。
 - **musl libc**：让一个活着的 Node 在这个设备类别上成为可能的那个弯路。
 
-Debian Mobile 是一个独立的实验性项目。它与 Debian、Termux 或任何 OEM 均无隶属、背书或认可关系。
+Sandshell 是一个独立的实验性项目。它与 Debian、Termux 或任何 OEM 均无隶属、背书或认可关系。

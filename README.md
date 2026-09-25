@@ -305,7 +305,7 @@ The full Part-by-Part log, sanitized, is planned for `docs/development-history.m
 2. Device-side regression of the full verified matrix on the release build, archived with raw output.
 3. `docs/development-history.md`: the complete, sanitized 90-Part log as a standalone debugging narrative.
 4. Optionally, and only after the above: revisiting the frozen Node/opencode line with the wrapper discipline already established.
-5. Android 12–17 support — extend device validation across the range (verified so far on Android 16 and Android 17).
+5. Android 12–17 support — extend device support across the range (verified so far on Android 16 and Android 17).
 
 ## Contributing
 

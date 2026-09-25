@@ -261,10 +261,12 @@ The deeper structural fact, learned in this line and priced into every future pl
 2. **Inherited `KILL` cannot be weakened.** If the OEM policy kills a syscall your workload needs, this project cannot and will not fix that by adding allowlists or faking success.
 3. **io_uring is degraded, honestly.** `io_uring_setup` returns `ENOSYS`; libuv falls back to epoll. Functionality is preserved, throughput is somewhat lower.
 4. **Static binaries with raw syscalls are out of reach.** Bun/Zig-style static binaries that issue `svc` directly cannot be shimmed by `LD_PRELOAD`. Binary patching is the only known remedy.
-5. **Node/npm are experimental, user-supplied, and not bundled.** Minimal commands pass; full lifecycles do not yet. opencode is frozen and unverified.
+5. **Node/npm are experimental, user-supplied, and not bundled or preinstalled.** Minimal commands pass; full lifecycles do not yet. opencode is frozen and unverified.
 6. **The terminal is a bounded VT implementation**, verified for specific paths (BusyBox `vi` alternate screen), not a complete xterm emulator.
 7. **Network is destination-dependent.** DNS and constrained TCP/HTTP probes are verified; arbitrary external reachability depends on the device's proxy and system policy and is not promised.
 8. **No arbitrary writable filesystem.** Writes are whitelisted to app-private rootfs paths; everything else gets `EROFS`, including paths Debian tooling sometimes expects (a deliberate boundary, documented in the development history).
+9. **Newly written executables can hit `Text file busy` (ETXTBSY) in the 0.1 build.** Every write-open made by a guest process leaks one write descriptor in the app-side supervisor (the same ADDFD leak documented in Case 6); a file written through the logical Debian paths cannot be executed until the app restarts. The one-line fix from the later internal line is not part of this release. Device-verified workaround: write through the physical rootfs path (`/data/user/0/<app>/files/debian/...`), which does not leak, and execute from there.
+10. **Executables must live inside the Debian rootfs tree.** Binaries under `/tmp` or the interop bridge (`/mnt/sdcard`) are readable and copyable, but not executable (`execve` fails with `ENOENT`); copy them into the rootfs (preferably via the physical path) before running.
 
 ## Verification Philosophy
 
@@ -305,7 +307,7 @@ The full Part-by-Part log, sanitized, is planned for `docs/development-history.m
 2. Device-side regression of the full verified matrix on the release build, archived with raw output.
 3. `docs/development-history.md`: the complete, sanitized 90-Part log as a standalone debugging narrative.
 4. Optionally, and only after the above: revisiting the frozen Node/opencode line with the wrapper discipline already established.
-5. Android 12–17 support — extend device support across the range (verified so far on Android 16 and Android 17).
+5. Android 12–17 support — extend device support across the range (verified so far on Android 16 and Android 17). A full-range (0–450) syscall-hazard enumerator is device-proven on Android 17; per-version tables are planned with the same pipeline.
 
 ## Contributing
 

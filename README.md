@@ -61,7 +61,7 @@ Target environment: Android 16 /17 (HyperOS 3 /4), AArch64, SELinux `untrusted_a
 | In-app self-check: 18-item Validation suite | Multiple 18/18 PASS records |
 | User-supplied musl Node 22 minimal entry: `node --version` (v22.23.2), a running JS one-liner, `npm --version` (10.9.8) | Device-verified; experimental, user-imported, not bundled. See [case file 3](#case-3-the-node-wall-and-the-musl-detour) |
 
-Explicitly not verified and not claimed: full GNU coreutils coverage, arbitrary network reachability, a complete xterm-compatible terminal, the Node/npm ecosystem beyond minimal commands, and opencode (that experiment was frozen before completion; see the [frozen line note](#case-7-the-frozen-line-opencode)).
+Explicitly not verified and not claimed: full GNU coreutils coverage, arbitrary network reachability, a complete xterm-compatible terminal, the Node/npm ecosystem beyond minimal commands, and opencode (that experiment was once frozen; it has since been unfrozen via the musl route — see [case 7](#case-7-the-frozen-line-opencode)).
 
 ## How It Works
 
@@ -251,7 +251,7 @@ Two findings from this line are worth keeping regardless of its fate. First, npm
 
 The deeper structural fact, learned in this line and priced into every future plan: the kernel opens `PT_INTERP` interpreters internally, never through userspace `openat`, so seccomp mediation can never see or translate the interpreter path. Any dynamically-linked binary whose interpreter is a logical Debian path must be wrapper-ized to invoke the physical loader explicitly. Static binaries that issue raw `svc` instructions for io_uring are beyond `LD_PRELOAD` entirely; the only known remedy is binary patching, for which this project has a precedent (`io_uring` calls rewritten to `ENOSYS`).
 
-**Status.** The extraction and wrapper scripts for this line were written and reviewed but deliberately never executed; the route was frozen to prioritize open-sourcing. No version of opencode has ever run to completion here, and nothing in this project should be read as claiming otherwise.
+**Status.** Originally frozen: the extraction and wrapper scripts for this line were written and reviewed but deliberately never executed, to prioritize open-sourcing — and for a time, no version of opencode had run to completion here. The line has since been revisited and **unfrozen**. On 2026-09-25, opencode v1.18.21 — the official **musl build** (`opencode-linux-arm64-musl`) — ran to completion inside the same unprivileged sandbox: `opencode --version` → `1.18.21` (exit 0), `opencode --help` → the full CLI (16 subcommands), installed as `/usr/local/bin/opencode`. The winning recipe reuses this project's own detours: the musl route of case 3 (`ld-musl` with an explicit `--library-path`), the `noshm3` preload shims (which also displace the default glibc preload hook), a writable `$HOME` (Bun's startup performs `mkdir($HOME)`, and system areas are `EROFS`), and explicit physical-loader invocation under the wrapper discipline of case 5. Note what made this possible: the official musl build is *dynamically linked*, so it remains shimmable — a static build would have stayed out of reach, as the boundaries below warn.
 
 **Lesson.** Some walls are load-bearing. Mapping precisely which failure classes are fixable in the compatibility layer (paths, fd leaks, loader routing) and which are not (inherited `KILL` priorities, kernel-internal interpreter opens, raw `svc` from static binaries) is itself a deliverable.
 
@@ -261,7 +261,7 @@ The deeper structural fact, learned in this line and priced into every future pl
 2. **Inherited `KILL` cannot be weakened.** If the OEM policy kills a syscall your workload needs, this project cannot and will not fix that by adding allowlists or faking success.
 3. **io_uring is degraded, honestly.** `io_uring_setup` returns `ENOSYS`; libuv falls back to epoll. Functionality is preserved, throughput is somewhat lower.
 4. **Static binaries with raw syscalls are out of reach.** Bun/Zig-style static binaries that issue `svc` directly cannot be shimmed by `LD_PRELOAD`. Binary patching is the only known remedy.
-5. **Node/npm are experimental, user-supplied, and not bundled or preinstalled.** Minimal commands pass; full lifecycles do not yet. opencode is frozen and unverified.
+5. **Node/npm are experimental, user-supplied, and not bundled or preinstalled.** Minimal commands pass; full lifecycles do not yet. opencode is no longer frozen: v1.18.21 (official musl build) runs to completion via the case-7 recipe; the npm-mediated install flow for it remains future work.
 6. **The terminal is a bounded VT implementation**, verified for specific paths (BusyBox `vi` alternate screen), not a complete xterm emulator.
 7. **Network is destination-dependent.** DNS and constrained TCP/HTTP probes are verified; arbitrary external reachability depends on the device's proxy and system policy and is not promised.
 8. **No arbitrary writable filesystem.** Writes are whitelisted to app-private rootfs paths; everything else gets `EROFS`, including paths Debian tooling sometimes expects (a deliberate boundary, documented in the development history).
@@ -298,6 +298,7 @@ Ninety "Parts", condensed to the load-bearing milestones:
 | The lifecycle maze | 59–71 | `spawn sh ENOENT` unmasked as a `chdir` failure; the `execvp` funnel theory; the `ETXTBSY` fd-leak investigation and its one-line fix |
 | Shadows and loaders | 72–88 | Shadow-wrapper tactics; physical-path immunity findings; the `ADDFD` leak mechanism confirmed; `PT_INTERP` kernel-invisibility proven; AArch64 loader chain and tar ground truth established |
 | The freeze | 89–90 | Extraction and wrapper scripts authored, reviewed, and deliberately not executed; the opencode line frozen; effort redirected to open-sourcing |
+| The thaw | 91 | opencode v1.18.21 (official musl build) runs to completion via the musl route: `--version` → 1.18.21 (exit 0), full `--help` CLI; wrapper installed at `/usr/local/bin/opencode` |
 
 The full Part-by-Part log, sanitized, is planned for `docs/development-history.md` in this repository.
 
@@ -306,7 +307,7 @@ The full Part-by-Part log, sanitized, is planned for `docs/development-history.m
 1. Release hygiene — done for the 0.1 APK: permission/component audit ([docs/permission-audit.md](docs/permission-audit.md)), full APK audit ([docs/apk-audit-v0.1.md](docs/apk-audit-v0.1.md)), a single release APK with published SHA-256 provenance and a rotated signing key. Source-tree sanitization continues incrementally; the 19 GB development workspace is deliberately not published.
 2. Device-side regression of the full verified matrix on the release build, archived with raw output.
 3. `docs/development-history.md`: the complete, sanitized 90-Part log as a standalone debugging narrative.
-4. Optionally, and only after the above: revisiting the frozen Node/opencode line with the wrapper discipline already established.
+4. ~~Revisiting the frozen Node/opencode line~~ — reached: opencode v1.18.21 runs to completion via the musl route (see case 7). The remaining piece is the npm-mediated install flow under the musl Node.
 5. Android 12–17 support — extend device support across the range (verified so far on Android 16 and Android 17). A full-range (0–450) syscall-hazard enumerator is device-proven on Android 17; per-version tables are planned with the same pipeline.
 
 ## Contributing

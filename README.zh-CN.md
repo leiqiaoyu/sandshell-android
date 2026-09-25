@@ -253,6 +253,8 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 
 **状态。** 最初被冻结：这条线的提取与 wrapper 脚本已经写好并经过评审，但被刻意地搁置；精力转向开源——在那段时间里，任何版本的 opencode 都未曾在这里跑通过。此线现已被重新审视并**解冻**：2026-09-25，opencode v1.18.21（官方 **musl 构建**，`opencode-linux-arm64-musl`）在同一无特权沙盒内完整跑通——`opencode --version` → `1.18.21`（退出码 0）、`opencode --help` → 完整 CLI（16 个子命令），命令安装于 `/usr/local/bin/opencode`。胜出的配方复用了本项目自己的弯路：案卷 3 的 musl 路线（`ld-musl` 加显式 `--library-path`）、`noshm3` 预加载垫片（同时顶替默认的 glibc 预加载钩子）、一个可写的 `$HOME`（Bun 启动时会 `mkdir($HOME)`，而系统区是 `EROFS`），以及案卷 5 的 wrapper 纪律——显式调用物理加载器。值得注意：官方 musl 构建是*动态链接*的，因此仍可被垫片拦截；静态构建则依然在触及范围之外，正如下方边界所警告。
 
+**复现。** 一键安装脚本随仓库提供：[`scripts/install-opencode.sh`](scripts/install-opencode.sh)。把官方 musl 包放到 `/mnt/sdcard/oc-musl.tgz`，在 Debian 终端运行该脚本；它会安装二进制与 wrapper，并用 `opencode --version` 自检。
+
 **教训。** 有些墙是承重墙。精确地画出哪些失败类别在兼容层内可修（路径、fd 泄漏、加载器路由），哪些不可修（继承的 `KILL` 优先级、内核内部的解释器打开、静态二进制的裸 `svc`），这本身就是一份交付物。
 
 ## 已知限制与诚实边界

@@ -4,7 +4,7 @@
 
 [English](README.md) | **简体中文**
 
-> **2026-09-13 — 已更名为 Sandshell。** Debian 商标团队拒绝了本项目此前的应用名（"Debian Mobile"）、Debian 漩涡启动器图标与 `com.debian.*` 包名（2026-08-28）；v0.1 发行版与 dev-archive 当日撤下。项目现已更名为 **Sandshell**（`dev.sandshell.core`），更名重构后的 v0.1 构建已就绪，待真机回归后重新发布。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。见 [docs/trademark.md](docs/trademark.md)。
+> **2026-09-13 — 已更名为 Sandshell。** Debian 商标团队拒绝了本项目此前的应用名（"Debian Mobile"）、Debian 漩涡启动器图标与 `com.debian.*` 包名（2026-08-28）；v0.1 发行版与 dev-archive 当日撤下。项目现已更名为 **Sandshell**（`dev.sandshell.core`），更名重构后的 v0.1 构建已通过真机回归并重新发布。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。见 [docs/trademark.md](docs/trademark.md)。
 
 Sandshell 在一个普通的、无特权的 Android 应用沙盒里运行真正的 Debian Bullseye（ARM64）用户态。不需要 Root，不用 PRoot，不把 ptrace 作为运行时核心，没有虚拟机，也不改内核：只有一个 Android 应用、一个 seccomp `USER_NOTIF` 监督进程，和一套被小心翼翼调解着的、放在应用私有目录里的 Debian rootfs。
 
@@ -49,7 +49,7 @@ Sandshell 是一个带边界兼容层的终端运行时。它不是通用容器�
 
 ## 已验证能力
 
-目标环境：Android 16（HyperOS 3）、AArch64、SELinux `untrusted_app_27`。下表每一行都有真机 exit 0 记录在案。
+目标环境：Android 16 /17（HyperOS 3 /4）、AArch64、SELinux `untrusted_app_27`。下表每一行都有真机 exit 0 记录在案。
 
 | 能力 | 证据 |
 |---|---|
@@ -132,7 +132,7 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 
 ## 安装与使用
 
-**v0.1 发行版已撤回（2026-08-28），并以 Sandshell 名义重新发布（2026-09-13）。** Debian 商标团队拒绝了应用名 "Debian Mobile"、Debian 漩涡图标与包名 `com.debian.runtime`，旧构建不再分发，原件由维护者离线保存。更名后的构建以 **Sandshell**（`dev.sandshell.core`）发布，使用全新签名密钥，运行时能力不变。
+**v0.1 发行版已撤回（2026-08-28），并以 Sandshell 名义重新发布（2026-09-19）。** Debian 商标团队拒绝了应用名 "Debian Mobile"、Debian 漩涡图标与包名 `com.debian.runtime`，旧构建不再分发，原件由维护者离线保存。更名后的构建以 **Sandshell**（`dev.sandshell.core`）发布，使用全新签名密钥，运行时能力不变。
 
 v0.1 是经过真机验证的 Part58 构建，并完成了发布卫生处理：移除 debug 标记、权限从 15 项收敛到 8 项、禁用外部命令 API、更换全新签名密钥。由于签名密钥已轮换，安装前请先卸载旧的开发版——应用使用 `sharedUserId`，Android 会拒绝跨签名的覆盖升级。
 
@@ -140,7 +140,7 @@ v0.1 是经过真机验证的 Part58 构建，并完成了发布卫生处理：�
 
 ### 环境要求
 
-- Android 16+ 设备，AArch64，最好属于已测试的设备类别（HyperOS 3，`untrusted_app_27` 域）。其他 OEM seccomp 策略下的行为无法保证，这是设备相关的。
+- Android 16+ 设备，AArch64，最好属于已测试的设备类别（HyperOS 3 /4，`untrusted_app_27` 域）。其他 OEM seccomp 策略下的行为无法保证，这是设备相关的。
 - 数百 MB 应用私有存储空间用于 rootfs。
 - 不需要任何特殊权限。这正是意义所在。
 
@@ -257,7 +257,7 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 
 ## 已知限制与诚实边界
 
-1. **设备相关。** 上述一切验证于 Android 16 / HyperOS 3 / AArch64 / `untrusted_app_27`。其他 OEM seccomp 策略可能毙掉不同的系统调用；兼容性无法被承诺，这一点是设计使然。
+1. **设备相关。** 上述一切验证于 Android 16 /17（HyperOS 3 /4）、AArch64、`untrusted_app_27`。其他 OEM seccomp 策略可能毙掉不同的系统调用；兼容性无法被承诺，这一点是设计使然。
 2. **继承的 `KILL` 无法削弱。** 如果 OEM 策略毙掉了你的工作负载需要的系统调用，本项目不能也不会靠加白名单或伪造成功来"修复"。
 3. **io_uring 是诚实降级的。** `io_uring_setup` 返回 `ENOSYS`，libuv 回退到 epoll。功能保留，吞吐略降。
 4. **裸系统调用的静态二进制够不着。** Bun/Zig 式直接发 `svc` 的静态二进制无法被 `LD_PRELOAD` 垫住，唯一已知解法是二进制补丁。
@@ -305,6 +305,7 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 2. 在发行构建上对整个已验证矩阵做真机回归，原始输出归档。
 3. `docs/development-history.md`：完整、脱敏的 90-Part 日志，作为独立的调试叙事。
 4. 可选，且仅在上面的完成之后：带着已经建立的 wrapper 纪律，重新审视冻结的 Node/opencode 路线。
+5. Android 12–17 支持——将设备验证扩展到完整区间（目前已真机验证：Android 16 与 Android 17）。
 
 ## 贡献指南
 

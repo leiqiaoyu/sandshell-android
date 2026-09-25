@@ -4,7 +4,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-> **2026-09-13 — Renamed to Sandshell.** The Debian trademark team declined this project's previous name ("Debian Mobile"), the Debian swirl launcher icon, and the `com.debian.*` package namespace (2026-08-28); the v0.1 release and the dev-archive were withdrawn the same day. The project is now renamed **Sandshell** (`dev.sandshell.core`), and a re-identified v0.1 build is ready, pending device regression before re-release. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. See [docs/trademark.md](docs/trademark.md).
+> **2026-09-13 — Renamed to Sandshell.** The Debian trademark team declined this project's previous name ("Debian Mobile"), the Debian swirl launcher icon, and the `com.debian.*` package namespace (2026-08-28); the v0.1 release and the dev-archive were withdrawn the same day. The project is now renamed **Sandshell** (`dev.sandshell.core`), and a re-identified v0.1 build has passed device regression and been re-released. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. See [docs/trademark.md](docs/trademark.md).
 
 Sandshell runs a real Debian Bullseye (ARM64) userland inside an ordinary, unprivileged Android application sandbox. No root, no PRoot, no ptrace as the runtime core, no virtual machine, and no kernel modification: just an Android app, a seccomp `USER_NOTIF` supervisor, and a carefully mediated Debian rootfs that lives in the app's private storage.
 
@@ -49,7 +49,7 @@ Sandshell is a terminal runtime with a bounded compatibility layer. It is not a 
 
 ## Verified Capabilities
 
-Target environment: Android 16 (HyperOS 3), AArch64, SELinux `untrusted_app_27`. All rows below have real-device exit code 0 on record.
+Target environment: Android 16 /17 (HyperOS 3 /4), AArch64, SELinux `untrusted_app_27`. All rows below have real-device exit code 0 on record.
 
 | Capability | Evidence |
 |---|---|
@@ -132,7 +132,7 @@ When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` pat
 
 ## Getting Started
 
-**The v0.1 release is withdrawn (2026-08-28) and re-released as Sandshell (2026-09-13).** The Debian trademark team declined the "Debian Mobile" name, the Debian swirl icon, and the `com.debian.runtime` package name, so the old build can no longer be distributed; the maintainer preserves it offline. The renamed build ships as **Sandshell** (`dev.sandshell.core`), with a new signing key and the same verified runtime.
+**The v0.1 release is withdrawn (2026-08-28) and re-released as Sandshell (2026-09-19).** The Debian trademark team declined the "Debian Mobile" name, the Debian swirl icon, and the `com.debian.runtime` package name, so the old build can no longer be distributed; the maintainer preserves it offline. The renamed build ships as **Sandshell** (`dev.sandshell.core`), with a new signing key and the same verified runtime.
 
 v0.1 is the device-validated Part58 build with release hygiene applied: debug flag removed, permissions cut from 15 to 8, the external command API disabled, and a fresh signing key. Because the signing key rotated, uninstall any older development build first — the app uses `sharedUserId`, and Android rejects cross-signature upgrades.
 
@@ -140,7 +140,7 @@ The interop folder (`/storage/emulated/0/sandshell-ext` on the Android side, `/m
 
 ### Requirements
 
-- An Android 16+ device, AArch64, ideally the tested class (HyperOS 3, `untrusted_app_27` domain). Behavior on other OEM seccomp policies is not guaranteed and is device-dependent.
+- An Android 16+ device, AArch64, ideally the tested class (HyperOS 3 /4, `untrusted_app_27` domain). Behavior on other OEM seccomp policies is not guaranteed and is device-dependent.
 - Several hundred MB of free app-private storage for the rootfs.
 - No special permissions. That is the point.
 
@@ -257,7 +257,7 @@ The deeper structural fact, learned in this line and priced into every future pl
 
 ## Known Limitations and Honest Boundaries
 
-1. **Device dependence.** Everything above is verified on Android 16 / HyperOS 3 / AArch64 / `untrusted_app_27`. Other OEM seccomp policies may kill different syscalls; compatibility is not promised and cannot be, by design.
+1. **Device dependence.** Everything above is verified on Android 16 /17 (HyperOS 3 /4), AArch64, `untrusted_app_27`. Other OEM seccomp policies may kill different syscalls; compatibility is not promised and cannot be, by design.
 2. **Inherited `KILL` cannot be weakened.** If the OEM policy kills a syscall your workload needs, this project cannot and will not fix that by adding allowlists or faking success.
 3. **io_uring is degraded, honestly.** `io_uring_setup` returns `ENOSYS`; libuv falls back to epoll. Functionality is preserved, throughput is somewhat lower.
 4. **Static binaries with raw syscalls are out of reach.** Bun/Zig-style static binaries that issue `svc` directly cannot be shimmed by `LD_PRELOAD`. Binary patching is the only known remedy.
@@ -305,6 +305,7 @@ The full Part-by-Part log, sanitized, is planned for `docs/development-history.m
 2. Device-side regression of the full verified matrix on the release build, archived with raw output.
 3. `docs/development-history.md`: the complete, sanitized 90-Part log as a standalone debugging narrative.
 4. Optionally, and only after the above: revisiting the frozen Node/opencode line with the wrapper discipline already established.
+5. Android 12–17 support — extend device validation across the range (verified so far on Android 16 and Android 17).
 
 ## Contributing
 

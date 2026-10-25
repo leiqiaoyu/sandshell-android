@@ -136,6 +136,14 @@ When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` pat
 
 ## Getting Started
 
+**Current release: [0.1.3](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.3) (2026-10-25), Debian 13 trixie.** Download `sandshell-v0.1.3.apk` from the release page.
+
+- APK SHA-256: `e1cf7df34a897285ffe47e0689cdfbf49b87e2a89cd02cbafc03defe6f8d70fc`
+- Signing certificate SHA-256: `77077a32d902cdae4a8a04860071070e0cab8f26673f847bcbd61cd62cb69920`
+- `dev.sandshell.core`, versionName 0.1.3, versionCode 1015. Installs over earlier Sandshell builds signed with the same key; the first launch migrates an existing Bullseye rootfs to trixie (the old one is kept at `/root/.bullseye-rootfs` until you delete it).
+
+The history below describes the original 0.1 release.
+
 **The v0.1 release is withdrawn (2026-08-28) and re-released as Sandshell (2026-09-19).** The Debian trademark team declined the "Debian Mobile" name, the Debian swirl icon, and the `com.debian.runtime` package name, so the old build can no longer be distributed; the maintainer preserves it offline. The renamed build ships as **Sandshell** (`dev.sandshell.core`), with a new signing key and the same verified runtime.
 
 v0.1 is the device-validated Part58 build with release hygiene applied: debug flag removed, permissions cut from 15 to 8, the external command API disabled, and a fresh signing key. Because the signing key rotated, uninstall any older development build first — the app uses `sharedUserId`, and Android rejects cross-signature upgrades.

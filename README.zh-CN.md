@@ -136,6 +136,14 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 
 ## 安装与使用
 
+**当前版本：[0.1.3](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.3)（2026-10-25），Debian 13 trixie。** 在发布页下载 `sandshell-v0.1.3.apk`。
+
+- APK SHA-256：`e1cf7df34a897285ffe47e0689cdfbf49b87e2a89cd02cbafc03defe6f8d70fc`
+- 签名证书 SHA-256：`77077a32d902cdae4a8a04860071070e0cab8f26673f847bcbd61cd62cb69920`
+- `dev.sandshell.core`，versionName 0.1.3，versionCode 1015。可覆盖安装同一签名的旧 Sandshell 构建；首次启动会把已有的 Bullseye rootfs 迁移到 trixie（旧系统保留在 `/root/.bullseye-rootfs`，确认无误后可删除）。
+
+以下说明针对最初的 0.1 发行版。
+
 **v0.1 发行版已撤回（2026-08-28），并以 Sandshell 名义重新发布（2026-09-19）。** Debian 商标团队拒绝了应用名 "Debian Mobile"、Debian 漩涡图标与包名 `com.debian.runtime`，旧构建不再分发，原件由维护者离线保存。更名后的构建以 **Sandshell**（`dev.sandshell.core`）发布，使用全新签名密钥，运行时能力不变。
 
 v0.1 是经过真机验证的 Part58 构建，并完成了发布卫生处理：移除 debug 标记、权限从 15 项收敛到 8 项、禁用外部命令 API、更换全新签名密钥。由于签名密钥已轮换，安装前请先卸载旧的开发版——应用使用 `sharedUserId`，Android 会拒绝跨签名的覆盖升级。

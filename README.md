@@ -65,7 +65,7 @@ Target environment: Android 16 /17 (HyperOS 3 /4), AArch64, SELinux `untrusted_a
 | In-app self-check: 18-item Validation suite | Multiple 18/18 PASS records |
 | User-supplied musl Node 22 minimal entry: `node --version` (v22.23.2), a running JS one-liner, `npm --version` (10.9.8) | Device-verified; experimental, user-imported, not bundled. See [case file 3](#case-3-the-node-wall-and-the-musl-detour) |
 | Debian 13 trixie (0.1.3): `apt update`, `apt install` (jq, python3 3.13.5), `apt --fix-broken install`, real relative/absolute symlinks, directory `chmod` | Device-verified on 0.1.3 development builds (t13j) |
-| Official glibc Node 22 + npm 10.9.9: `npm install`, `npm i -g`, `npx @deepseek-ai/dsh web`; `python3 -m http.server` + `curl localhost` | Device-verified on 0.1.3 development builds (t13g–t13k) |
+| Official glibc Node 22 + npm 10.9.9: `npm install`, `npm i -g`, `npx @deepseek-ai/dsh web`; `python3 -m http.server` + `curl localhost` | Device-verified on 0.1.3 development builds (t13g–t13k); `dsh web` re-verified on the 0.1.3 release APK |
 
 Explicitly not verified and not claimed: full GNU coreutils coverage, arbitrary network reachability, a complete xterm-compatible terminal, the Node/npm ecosystem beyond minimal commands, and opencode (that experiment was once frozen; it has since been unfrozen via the musl route — see [case 7](#case-7-the-frozen-line-opencode)).
 

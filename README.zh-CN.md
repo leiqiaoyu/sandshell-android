@@ -65,7 +65,7 @@ Sandshell 是一个带边界兼容层的终端运行时。它不是通用容器�
 | 应用内自检：18 项 Validation 套件 | 多次 18/18 PASS 记录 |
 | 用户自带 musl Node 22 最小入口：`node --version`（v22.23.2）、一段运行中的 JS 单行脚本、`npm --version`（10.9.8） | 真机验证；实验性、用户自行导入、不随包分发。见[案卷 3](#案卷-3node-之墙与-musl-弯路) |
 | Debian 13 trixie（0.1.3）：`apt update`、`apt install`（jq、python3 3.13.5）、`apt --fix-broken install`、真实的相对/绝对符号链接、目录 `chmod` | 0.1.3 开发构建（t13j）真机验证 |
-| 官方 glibc Node 22 + npm 10.9.9：`npm install`、`npm i -g`、`npx @deepseek-ai/dsh web`；`python3 -m http.server` + `curl localhost` | 0.1.3 开发构建（t13g–t13k）真机验证 |
+| 官方 glibc Node 22 + npm 10.9.9：`npm install`、`npm i -g`、`npx @deepseek-ai/dsh web`；`python3 -m http.server` + `curl localhost` | 0.1.3 开发构建（t13g–t13k）真机验证；`dsh web` 已在 0.1.3 正式 APK 上复验 |
 
 明确未验证、也绝不声明的：完整 GNU coreutils 覆盖、任意网络可达性、完整 xterm 兼容终端、超出最小命令的 Node/npm 生态，以及 opencode（该实验一度被冻结；后经 musl 路线解冻，见[案卷 7](#案卷-7冻结线opencode)）。
 

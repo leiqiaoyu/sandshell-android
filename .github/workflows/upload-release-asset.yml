@@ -1,0 +1,22 @@
+name: upload-release-asset
+on:
+  workflow_dispatch:
+    inputs:
+      url: {description: "Download URL of the asset", required: true}
+      tag: {description: "Release tag", required: true}
+      name: {description: "Asset file name", required: true}
+      sha256: {description: "Expected SHA-256", required: true}
+permissions:
+  contents: write
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and verify
+        run: |
+          curl -fL --retry 3 -o "${{ inputs.name }}" "${{ inputs.url }}"
+          echo "${{ inputs.sha256 }}  ${{ inputs.name }}" | sha256sum -c -
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" "${{ inputs.name }}" --clobber -R "${{ github.repository }}"

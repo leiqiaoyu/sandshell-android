@@ -10,7 +10,7 @@
 
 > **2026-09-13 — Renamed to Sandshell.** The Debian trademark team declined this project's previous name ("Debian Mobile"), the Debian swirl launcher icon, and the `com.debian.*` package namespace (2026-08-28); the v0.1 release and the dev-archive were withdrawn the same day. The project is now renamed **Sandshell** (`dev.sandshell.core`), and a re-identified v0.1 build has passed device regression and been re-released. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. See [docs/trademark.md](docs/trademark.md).
 
-Sandshell runs a real Debian Bullseye (ARM64) userland inside an ordinary, unprivileged Android application sandbox. No root, no PRoot, no ptrace as the runtime core, no virtual machine, and no kernel modification: just an Android app, a seccomp `USER_NOTIF` supervisor, and a carefully mediated Debian rootfs that lives in the app's private storage.
+Sandshell runs a real Debian 13 trixie (ARM64) userland (0.1.3; earlier releases shipped Debian 11 Bullseye) inside an ordinary, unprivileged Android application sandbox. No root, no PRoot, no ptrace as the runtime core, no virtual machine, and no kernel modification: just an Android app, a seccomp `USER_NOTIF` supervisor, and a carefully mediated Debian rootfs that lives in the app's private storage.
 
 The interesting problem here is not "unzip a Debian directory onto a phone". Anyone can do that. The interesting problem is that a Debian process believes it lives at `/usr/bin`, while the kernel insists it lives at `/data/user/0/<package>/files/debian/usr/bin`, and neither side is willing to compromise. Sandshell resolves this standoff with a compatibility layer that is deliberately thin, auditable, and honest about its own limits: a supervisor process intercepts selected path-related syscalls, translates logical Debian paths into physical paths inside an app-private rootfs, and injects the resulting file descriptors back into the Debian child. Android's inherited security policy, including every `KILL` rule the OEM shipped, remains fully in force. We treat that as a feature, not an obstacle.
 
@@ -43,7 +43,7 @@ Compared with the usual approaches:
 |---|---|---|
 | Root + `chroot` | Kernel-level namespace switch | Rejected: requires root |
 | PRoot | `ptrace` syscall rewriting | Rejected: ptrace as runtime core is slow, fragile on OEM kernels, and against project principles |
-| Termux-style native prefix | Not Debian; packages rebuilt against Android's bionic | We run the real Debian Bullseye rootfs and official `.deb` packages, unmodified |
+| Termux-style native prefix | Not Debian; packages rebuilt against Android's bionic | We run the real Debian trixie rootfs and official `.deb` packages, unmodified |
 
 The terminal UI descends from the official Termux v0.118.3 codebase, adapted for this runtime. The app is a terminal, not a compatibility gimmick: PTY sessions, job control, scrollback, and alternate-screen TUI behavior are first-class concerns.
 
@@ -64,6 +64,8 @@ Target environment: Android 16 /17 (HyperOS 3 /4), AArch64, SELinux `untrusted_a
 | Basic TUI alternate-screen behavior (BusyBox `vi` enter and `:q!` exit, main screen intact) | Device-verified |
 | In-app self-check: 18-item Validation suite | Multiple 18/18 PASS records |
 | User-supplied musl Node 22 minimal entry: `node --version` (v22.23.2), a running JS one-liner, `npm --version` (10.9.8) | Device-verified; experimental, user-imported, not bundled. See [case file 3](#case-3-the-node-wall-and-the-musl-detour) |
+| Debian 13 trixie (0.1.3): `apt update`, `apt install` (jq, python3 3.13.5), `apt --fix-broken install`, real relative/absolute symlinks, directory `chmod` | Device-verified on 0.1.3 development builds (t13j) |
+| Official glibc Node 22 + npm 10.9.9: `npm install`, `npm i -g`, `npx @deepseek-ai/dsh web`; `python3 -m http.server` + `curl localhost` | Device-verified on 0.1.3 development builds (t13g–t13k) |
 
 Explicitly not verified and not claimed: full GNU coreutils coverage, arbitrary network reachability, a complete xterm-compatible terminal, the Node/npm ecosystem beyond minimal commands, and opencode (that experiment was once frozen; it has since been unfrozen via the musl route — see [case 7](#case-7-the-frozen-line-opencode)).
 
@@ -102,7 +104,7 @@ Relative paths pass straight through: the child's working directory already sits
 
 ### exec dispatch and the shim
 
-`execve(221)` is deliberately not mediated. Translation at exec time happens instead in userspace, inside a `LD_PRELOAD` hook (`libdebian_exec.so`) built against Debian Bullseye's glibc:
+`execve(221)` is deliberately not mediated. Translation at exec time happens instead in userspace, inside a `LD_PRELOAD` hook (`libdebian_exec.so`) built against Debian glibc (Bullseye's through 0.1.2, trixie's 2.41 from 0.1.3):
 
 - Dynamic ELF: dispatched through the physical Debian loader.
 - ELF with no `PT_INTERP` (static-PIE, such as `ldconfig`): raw `execve`.
@@ -130,7 +132,7 @@ The security posture is asymmetric on purpose: Android's rules always win.
 | No new high-numbered `ALLOW` | `wait4(260)` is the only one, required for job control |
 | Honest `ENOSYS` | Unsupported syscalls fail as unsupported; we never fake success |
 | Controlled write surface | Writes go to whitelisted paths in the app-private rootfs; everything else gets `EROFS` |
-| No bundled Node, npm, opencode, or third-party business tools | Users may import their own binaries at their own risk; see the frozen line note |
+| No third-party business tools preinstalled into the rootfs | 0.1.3 ships official glibc Node 22 / npm and an opencode build as native libraries of the app; anything else the user installs with apt/npm at their own risk |
 
 When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` path mediation with controlled fd injection inside an app-private rootfs". The inaccurate phrasings, which we ask everyone to avoid, include "Android sandbox bypass", "root", and "full chroot".
 
@@ -158,7 +160,7 @@ The interop folder (`/storage/emulated/0/sandshell-ext` on the Android side, `/m
 
 ### First run
 
-1. Install the APK and launch the app. First launch unpacks and verifies the Debian Bullseye ARM64 rootfs into the app's private storage.
+1. Install the APK and launch the app. First launch unpacks and verifies the Debian 13 trixie ARM64 rootfs (an existing Bullseye install is migrated and kept as a backup) into the app's private storage.
 2. A Bash prompt appears in a PTY session. Basic path virtualization is already active: `ls /usr/bin`, `cat /etc/passwd`.
 3. Open the Validation page and run the 18-item suite. All 18 must pass before anything else is worth trying.
 4. The verified package-management path:
@@ -175,7 +177,7 @@ Every command above has a real-device exit code 0 on record. Commands outside th
 
 ### About Node.js
 
-Sandshell does not bundle Node.js and does not promise it. Official glibc Node builds die under inherited seccomp on the tested device class (see [case file 3](#case-3-the-node-wall-and-the-musl-detour)). A user-supplied musl Node 22, imported into `/usr/local/node-musl` and dispatched through the runtime's precise loader routing, has passed minimal commands (`node --version`, a JS one-liner, `npm --version`) on the target device. This is documented as an experimental capability of the dispatch mechanism, not as a supported Node platform: full npm lifecycles and global package installs remain unverified and are known to walk through several landmines described in the case files below.
+**0.1.3:** Node.js is official glibc Node 22 with npm, running under the trixie glibc with the runtime preloads; `npm install`, global installs and `npx @deepseek-ai/dsh web` are device-verified. The musl route below is history. Originally: official glibc Node builds died under inherited seccomp on the tested device class (see [case file 3](#case-3-the-node-wall-and-the-musl-detour)). A user-supplied musl Node 22, imported into `/usr/local/node-musl` and dispatched through the runtime's precise loader routing, has passed minimal commands (`node --version`, a JS one-liner, `npm --version`) on the target device. This is documented as an experimental capability of the dispatch mechanism, not as a supported Node platform: full npm lifecycles and global package installs remain unverified and are known to walk through several landmines described in the case files below.
 
 ## The Hard Problems
 
@@ -275,7 +277,7 @@ The deeper structural fact, learned in this line and priced into every future pl
 2. **Inherited `KILL` cannot be weakened.** If the OEM policy kills a syscall your workload needs, this project cannot and will not fix that by adding allowlists or faking success.
 3. **io_uring is degraded, honestly.** `io_uring_setup` returns `ENOSYS`; libuv falls back to epoll. Functionality is preserved, throughput is somewhat lower.
 4. **Static binaries with raw syscalls are out of reach.** Bun/Zig-style static binaries that issue `svc` directly cannot be shimmed by `LD_PRELOAD`. Binary patching is the only known remedy.
-5. **Node/npm are experimental, user-supplied, and not bundled or preinstalled.** Minimal commands pass; full lifecycles do not yet. opencode is no longer frozen: v1.18.21 (official musl build) runs to completion via the case-7 recipe; the npm-mediated install flow for it remains future work.
+5. **Node/npm (0.1.3): official glibc Node 22 + npm.** `npm install`, global installs and `npx @deepseek-ai/dsh web` pass on device; packages that rely on hard links or on syscalls the OEM policy kills can still fail. opencode is no longer frozen: v1.18.21 (official musl build) runs to completion via the case-7 recipe; the npm-mediated install flow for it remains future work.
 6. **The terminal is a bounded VT implementation**, verified for specific paths (BusyBox `vi` alternate screen), not a complete xterm emulator.
 7. **Network is destination-dependent.** DNS and constrained TCP/HTTP probes are verified; arbitrary external reachability depends on the device's proxy and system policy and is not promised.
 8. **No arbitrary writable filesystem.** Writes are whitelisted to app-private rootfs paths; everything else gets `EROFS`, including paths Debian tooling sometimes expects (a deliberate boundary, documented in the development history).
@@ -323,7 +325,7 @@ The full Part-by-Part log, sanitized, is planned for `docs/development-history.m
 1. Release hygiene — done for the 0.1 APK: permission/component audit ([docs/permission-audit.md](docs/permission-audit.md)), full APK audit ([docs/apk-audit-v0.1.md](docs/apk-audit-v0.1.md)), a single release APK with published SHA-256 provenance and a rotated signing key. Source-tree sanitization continues incrementally; the 19 GB development workspace is deliberately not published.
 2. Device-side regression of the full verified matrix on the release build, archived with raw output.
 3. `docs/development-history.md`: the complete, sanitized 90-Part log as a standalone debugging narrative.
-4. ~~Revisiting the frozen Node/opencode line~~ — reached: opencode v1.18.21 runs to completion via the musl route (see case 7). The remaining piece is the npm-mediated install flow under the musl Node.
+4. ~~Revisiting the frozen Node/opencode line~~ — reached: opencode v1.18.21 runs to completion via the musl route (see case 7). Since 0.1.3 Node/npm run on glibc and npm installs work.
 5. Android 12–17 support — extend device support across the range (verified so far on Android 16 and Android 17). A full-range (0–450) syscall-hazard enumerator is device-proven on Android 17; per-version tables are planned with the same pipeline.
 
 ## Contributing
@@ -332,7 +334,7 @@ Contributions are welcome under the project's discipline, which is short and str
 
 - Evidence or it did not happen. PRs claiming behavior must include device, command, raw output, and exit code. Output-text matching is not a test.
 - No new high-numbered `ALLOW` syscalls, ever. `wait4(260)` is the only one and its justification is job control.
-- No NDK/bionic-built artifacts that load into Debian processes. Preload hooks are built against Debian Bullseye glibc, always.
+- No NDK/bionic-built artifacts that load into Debian processes. Preload hooks are built against the shipped Debian glibc (trixie 2.41 since 0.1.3), always.
 - No fake successes. Unsupported means `ENOSYS`; partial means documented; random means `/dev/urandom`.
 - Narrow rules over broad ones. A path predicate fixes one package's failure; a directory-wide permission change is rejected on sight.
 
@@ -350,14 +352,14 @@ See `LICENSE` for the full text and `NOTICE` for the upstream attribution invent
 
 Debian and the Debian swirl are trademarks of Software in the Public Interest, Inc. On 2026-08-24 this project requested permission for the application name, the Debian swirl launcher icon, and the `com.debian.runtime` package name; on 2026-08-28 the Debian trademark team declined all three. In response, the v0.1 release and the dev-archive were withdrawn the same day, the release APK was removed from the repository, and the project renamed to **Sandshell** — the swirl icon will not be used again.
 
-What remains permitted, and relied upon: honest, non-misleading statements that the application uses parts of the Debian userland (it runs an unmodified Debian Bullseye ARM64 rootfs), per the "When You Can Use the Debian Trademarks Without Asking Permission" section of the Debian trademark policy. This project is not affiliated with Debian and does not represent Debian.
+What remains permitted, and relied upon: honest, non-misleading statements that the application uses parts of the Debian userland (it runs an unmodified Debian trixie ARM64 rootfs), per the "When You Can Use the Debian Trademarks Without Asking Permission" section of the Debian trademark policy. This project is not affiliated with Debian and does not represent Debian.
 
 The correspondence record and remediation plan live in [docs/trademark.md](docs/trademark.md).
 
 ## Upstream Lineage
 
 - **Termux** (v0.118.3): ancestor of the terminal UI and session layer. This project is deeply indebted to it, and its licensing obligations are taken seriously rather than waved through.
-- **Debian** (Bullseye, ARM64): the rootfs and every `.deb` that makes this worth doing. Debian and its trademark policy are respected; this project is not affiliated with Debian.
+- **Debian** (trixie, ARM64; Bullseye through 0.1.2): the rootfs and every `.deb` that makes this worth doing. Debian and its trademark policy are respected; this project is not affiliated with Debian.
 - **BusyBox**: the static applet backstop for the audited command set.
 - **musl libc**: the detour that made a living Node possible on this device class.
 

@@ -10,7 +10,7 @@
 
 > **2026-09-13 — 已更名为 Sandshell。** Debian 商标团队拒绝了本项目此前的应用名（"Debian Mobile"）、Debian 漩涡启动器图标与 `com.debian.*` 包名（2026-08-28）；v0.1 发行版与 dev-archive 当日撤下。项目现已更名为 **Sandshell**（`dev.sandshell.core`），更名重构后的 v0.1 构建已通过真机回归并重新发布。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。见 [docs/trademark.md](docs/trademark.md)。
 
-Sandshell 在一个普通的、无特权的 Android 应用沙盒里运行真正的 Debian Bullseye（ARM64）用户态。不需要 Root，不用 PRoot，不把 ptrace 作为运行时核心，没有虚拟机，也不改内核：只有一个 Android 应用、一个 seccomp `USER_NOTIF` 监督进程，和一套被小心翼翼调解着的、放在应用私有目录里的 Debian rootfs。
+Sandshell 在一个普通的、无特权的 Android 应用沙盒里运行真正的 Debian 13 trixie（ARM64）用户态（0.1.3 起；更早版本为 Debian 11 Bullseye）。不需要 Root，不用 PRoot，不把 ptrace 作为运行时核心，没有虚拟机，也不改内核：只有一个 Android 应用、一个 seccomp `USER_NOTIF` 监督进程，和一套被小心翼翼调解着的、放在应用私有目录里的 Debian rootfs。
 
 这件事有趣的地方不是"把 Debian 目录解压到手机上"，任何人都能做到这一点。有趣的地方在于：Debian 进程坚信自己活在 `/usr/bin`，而内核坚持认为它活在 `/data/user/0/<package>/files/debian/usr/bin`，双方都不肯让步。Sandshell 用一层刻意保持轻薄、可审计、并对自身边界诚实的兼容层化解了这场对峙：监督进程拦截选定的路径类系统调用，把 Debian 的逻辑路径翻译成应用私有 rootfs 里的物理路径，再把文件描述符注回 Debian 子进程。Android 继承下来的安全策略，包括 OEM 出厂的每一条 `KILL` 规则，原封不动地继续生效。我们把这当作特性，而不是障碍。
 
@@ -43,7 +43,7 @@ Sandshell 是一个面向受限 Android 应用域的实验性、轻量 Debian AR
 |---|---|---|
 | Root + `chroot` | 内核级命名空间切换 | 拒绝：需要 Root |
 | PRoot | `ptrace` 系统调用改写 | 拒绝：ptrace 作为运行时核心又慢又脆，在 OEM 内核上不可靠，且违反项目原则 |
-| Termux 式原生前缀 | 不是 Debian；软件包针对 Android bionic 重建 | 我们运行真正的 Debian Bullseye rootfs 和官方 `.deb` 包，不做修改 |
+| Termux 式原生前缀 | 不是 Debian；软件包针对 Android bionic 重建 | 我们运行真正的 Debian trixie rootfs 和官方 `.deb` 包，不做修改 |
 
 终端 UI 源自官方 Termux v0.118.3 代码库，针对本运行时做了适配。这个应用首先是一个终端，不是一个兼容性噱头：PTY 会话、作业控制、回滚缓冲区和 alternate-screen TUI 行为都是一等公民。
 
@@ -64,6 +64,8 @@ Sandshell 是一个带边界兼容层的终端运行时。它不是通用容器�
 | 基础 TUI alternate-screen 行为（BusyBox `vi` 进入与 `:q!` 退出，主屏内容完好） | 真机验证 |
 | 应用内自检：18 项 Validation 套件 | 多次 18/18 PASS 记录 |
 | 用户自带 musl Node 22 最小入口：`node --version`（v22.23.2）、一段运行中的 JS 单行脚本、`npm --version`（10.9.8） | 真机验证；实验性、用户自行导入、不随包分发。见[案卷 3](#案卷-3node-之墙与-musl-弯路) |
+| Debian 13 trixie（0.1.3）：`apt update`、`apt install`（jq、python3 3.13.5）、`apt --fix-broken install`、真实的相对/绝对符号链接、目录 `chmod` | 0.1.3 开发构建（t13j）真机验证 |
+| 官方 glibc Node 22 + npm 10.9.9：`npm install`、`npm i -g`、`npx @deepseek-ai/dsh web`；`python3 -m http.server` + `curl localhost` | 0.1.3 开发构建（t13g–t13k）真机验证 |
 
 明确未验证、也绝不声明的：完整 GNU coreutils 覆盖、任意网络可达性、完整 xterm 兼容终端、超出最小命令的 Node/npm 生态，以及 opencode（该实验一度被冻结；后经 musl 路线解冻，见[案卷 7](#案卷-7冻结线opencode)）。
 
@@ -102,7 +104,7 @@ Debian 子进程安装一个对 18 个路径与身份相关系统调用生效的
 
 ### exec 分流与垫片
 
-`execve(221)` 刻意不被调解。exec 时刻的翻译发生在用户态，由一个针对 Debian Bullseye glibc 构建的 `LD_PRELOAD` 钩子（`libdebian_exec.so`）完成：
+`execve(221)` 刻意不被调解。exec 时刻的翻译发生在用户态，由一个针对 Debian glibc 构建（0.1.2 及以前为 Bullseye，0.1.3 起为 trixie 2.41）的 `LD_PRELOAD` 钩子（`libdebian_exec.so`）完成：
 
 - 动态 ELF：分派到物理 Debian 加载器。
 - 无 `PT_INTERP` 的 ELF（静态 PIE，例如 `ldconfig`）：直接 `execve`。
@@ -130,7 +132,7 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 | 不新增高号 `ALLOW` | `wait4(260)` 是唯一一个，为作业控制而存在 |
 | 诚实的 `ENOSYS` | 不支持的系统调用按不支持失败，绝不伪造成功 |
 | 受控写面 | 写操作只落在应用私有 rootfs 的白名单路径，其余一律 `EROFS` |
-| 不内置 Node、npm、opencode 或任何第三方业务工具 | 用户可自担风险导入自己的二进制，见冻结线说明 |
+| 不向 rootfs 预装第三方业务工具 | 0.1.3 以应用原生库形式附带官方 glibc Node 22 / npm 与一个 opencode 构建；用户用 apt/npm 自行安装的其他软件风险自负 |
 
 介绍本项目时，准确的措辞是："在应用私有 rootfs 内，通过 seccomp `USER_NOTIF` 进行路径调解与受控 fd 注入"。不准确的措辞，包括"绕过 Android 沙盒""Root 了""完整 chroot"，请大家避免使用。
 
@@ -158,7 +160,7 @@ v0.1 是经过真机验证的 Part58 构建，并完成了发布卫生处理：�
 
 ### 首次运行
 
-1. 安装 APK 并启动应用。首次启动会把 Debian Bullseye ARM64 rootfs 解包并校验到应用私有存储。
+1. 安装 APK 并启动应用。首次启动会把 Debian 13 trixie ARM64 rootfs 解包并校验到应用私有存储（已有的 Bullseye 安装会被迁移并保留备份）。
 2. PTY 会话中出现 Bash 提示符。基础路径虚拟化已经生效：`ls /usr/bin`、`cat /etc/passwd`。
 3. 打开 Validation 页面运行 18 项套件。18 项全过之前，其他任何尝试都不值得。
 4. 已验证的包管理路径：
@@ -175,7 +177,7 @@ $ apt install -y gcc
 
 ### 关于 Node.js
 
-Sandshell 不内置 Node.js，也不承诺它。官方 glibc 版 Node 在已测设备类别上死于继承 seccomp（见[案卷 3](#案卷-3node-之墙与-musl-弯路)）。一套用户自行导入到 `/usr/local/node-musl` 的 musl Node 22，经运行时的精确加载器分流调度，已在目标设备上通过最小命令（`node --version`、一段 JS 单行脚本、`npm --version`）。这被记录为分流机制的实验性能力，而不是一个受支持的 Node 平台：完整 npm 生命周期与全局包安装仍未验证，而且已知会踩进下面案卷描述的若干雷区。
+**0.1.3：** Node.js 为官方 glibc Node 22 + npm，运行在 trixie glibc 与运行时 preload 之上；`npm install`、全局安装与 `npx @deepseek-ai/dsh web` 已真机验证。下面的 musl 路线是历史。最初：官方 glibc 版 Node 在已测设备类别上死于继承 seccomp（见[案卷 3](#案卷-3node-之墙与-musl-弯路)）。一套用户自行导入到 `/usr/local/node-musl` 的 musl Node 22，经运行时的精确加载器分流调度，已在目标设备上通过最小命令（`node --version`、一段 JS 单行脚本、`npm --version`）。这被记录为分流机制的实验性能力，而不是一个受支持的 Node 平台：完整 npm 生命周期与全局包安装仍未验证，而且已知会踩进下面案卷描述的若干雷区。
 
 ## 那些硬骨头
 
@@ -275,7 +277,7 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 2. **继承的 `KILL` 无法削弱。** 如果 OEM 策略毙掉了你的工作负载需要的系统调用，本项目不能也不会靠加白名单或伪造成功来"修复"。
 3. **io_uring 是诚实降级的。** `io_uring_setup` 返回 `ENOSYS`，libuv 回退到 epoll。功能保留，吞吐略降。
 4. **裸系统调用的静态二进制够不着。** Bun/Zig 式直接发 `svc` 的静态二进制无法被 `LD_PRELOAD` 垫住，唯一已知解法是二进制补丁。
-5. **Node/npm 是实验性的、用户自带的、不随包分发、也不预装的。** 最小命令通过；完整生命周期尚未通过。opencode 不再冻结：v1.18.21（官方 musl 构建）已按案卷 7 的配方完整跑通；经 npm 的安装流程仍属未来工作。
+5. **Node/npm（0.1.3）：官方 glibc Node 22 + npm。** `npm install`、全局安装与 `npx @deepseek-ai/dsh web` 真机通过；依赖硬链接或依赖被 OEM 策略杀掉的系统调用的包仍可能失败。opencode 不再冻结：v1.18.21（官方 musl 构建）已按案卷 7 的配方完整跑通；经 npm 的安装流程仍属未来工作。
 6. **终端是有界的 VT 实现**，针对已验证路径（BusyBox `vi` 的 alternate screen）验证，不是完整的 xterm 模拟器。
 7. **网络取决于目的地。** DNS 与受限 TCP/HTTP 探测已验证；任意外部可达性取决于设备代理与系统策略，不做承诺。
 8. **没有任意可写文件系统。** 写操作白名单限于应用私有 rootfs 路径；其余一律 `EROFS`，包括 Debian 工具链有时会期待可写的路径（这是刻意划定的边界，记录在开发历程中）。
@@ -323,7 +325,7 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 1. 发布卫生——0.1 APK 已完成：权限与组件审计（[docs/permission-audit.md](docs/permission-audit.md)）、完整 APK 审计（[docs/apk-audit-v0.1.md](docs/apk-audit-v0.1.md)）、带 SHA-256 溯源与轮换签名密钥的唯一发行 APK。源码树脱敏将增量推进；19 GB 开发工作区刻意不公开。
 2. 在发行构建上对整个已验证矩阵做真机回归，原始输出归档。
 3. `docs/development-history.md`：完整、脱敏的 90-Part 日志，作为独立的调试叙事。
-4. ~~重新审视冻结的 Node/opencode 路线~~ —— 已达：opencode v1.18.21 已通过 musl 路线跑通（见案卷 7）。剩余部分：musl Node 下经 npm 的安装流程。
+4. ~~重新审视冻结的 Node/opencode 路线~~ —— 已达：opencode v1.18.21 已通过 musl 路线跑通（见案卷 7）。0.1.3 起 Node/npm 跑在 glibc 上，npm 安装可用。
 5. Android 12–17 支持——将设备支持扩展到完整区间（目前已真机验证：Android 16 与 Android 17）。全量（0–450）系统调用雷区枚举器已在 Android 17 真机验证；逐版本雷表将用同一条流水线产出。
 
 ## 贡献指南
@@ -332,7 +334,7 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 
 - 没有证据就没有发生。声称行为的 PR 必须附带设备、命令、原始输出与退出码。匹配输出文本不算测试。
 - 永远不新增高号 `ALLOW` 系统调用。`wait4(260)` 是唯一一个，理由是作业控制。
-- 不提交会被加载进 Debian 进程的 NDK/bionic 产物。预加载钩子永远针对 Debian Bullseye glibc 构建。
+- 不提交会被加载进 Debian 进程的 NDK/bionic 产物。预加载钩子永远针对随包的 Debian glibc 构建（0.1.3 起为 trixie 2.41）。
 - 不伪造成功。不支持就是 `ENOSYS`，部分支持就写文档，随机数只能来自 `/dev/urandom`。
 - 窄规则优先于宽规则。一条路径谓词修好一个包的失败；一个放宽整目录权限的改动，看一眼就会被拒绝。
 
@@ -350,14 +352,14 @@ Issue 请包含：设备型号与 Android/OEM 版本、精确命令、完整 std
 
 Debian 与 Debian 漩涡标志是 Software in the Public Interest, Inc. 的商标。2026-08-24，本项目就应用名、Debian 漩涡启动器图标与包名 `com.debian.runtime` 提交了使用申请；2026-08-28，Debian 商标团队**三项全部拒绝**。作为回应，v0.1 发行版与 dev-archive 当日撤下，发行 APK 已从仓库移除，项目更名为 **Sandshell**——漩涡图标不会再被使用。
 
-仍然被允许且继续依赖的使用方式：如实、不误导地声明"本应用使用了 Debian 用户态的组成部分"（它运行未经修改的 Debian Bullseye ARM64 rootfs），这属于 Debian 商标政策 "When You Can Use the Debian Trademarks Without Asking Permission" 一节覆盖的说明性使用。本项目与 Debian 无隶属关系，也不代表 Debian。
+仍然被允许且继续依赖的使用方式：如实、不误导地声明"本应用使用了 Debian 用户态的组成部分"（它运行未经修改的 Debian trixie ARM64 rootfs），这属于 Debian 商标政策 "When You Can Use the Debian Trademarks Without Asking Permission" 一节覆盖的说明性使用。本项目与 Debian 无隶属关系，也不代表 Debian。
 
 往来记录与整改方案见 [docs/trademark.md](docs/trademark.md)。
 
 ## 上游血统
 
 - **Termux**（v0.118.3）：终端 UI 与会话层的前身。本项目深受其惠，其许可证义务被认真对待而非挥手放过。
-- **Debian**（Bullseye，ARM64）：rootfs，以及让这一切值得做的每一个 `.deb`。Debian 及其商标政策受到尊重；本项目与 Debian 无隶属关系。
+- **Debian**（trixie，ARM64；0.1.2 及以前为 Bullseye）：rootfs，以及让这一切值得做的每一个 `.deb`。Debian 及其商标政策受到尊重；本项目与 Debian 无隶属关系。
 - **BusyBox**：已审计命令集的静态 applet 后盾。
 - **musl libc**：让一个活着的 Node 在这个设备类别上成为可能的那个弯路。
 

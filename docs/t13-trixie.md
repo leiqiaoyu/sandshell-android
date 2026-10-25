@@ -36,3 +36,12 @@ echo 'export NODE_OPTIONS="--require /usr/local/lib/sandshell/node-linkfix.cjs${
 - 迁移备份移出 `/root`
 - TUI 长按拖动未测
 - README 与 Release 在正式发布时更新
+
+## 0.1.3 (versionCode 1015)
+
+- Base: t13k preload (link/linkat translated to physical paths; on Android the kernel then returns the real SELinux EACCES).
+- dsh hard-link fallback is built into the default bashrc: `scripts/sandshell-node-linkfix.cjs` is deployed to
+  `/usr/local/lib/sandshell/android-link-fallback.cjs`, and the `dsh()` / `npx()` shell functions (npx only when the
+  arguments contain `@deepseek-ai/dsh`) load it via `NODE_OPTIONS=--require` in a subshell. Other Node programs are untouched.
+- Fallback: on EACCES/EPERM, EEXIST if the target exists, else copy to a hidden temp beside it and `rename()`. The result
+  is an independent copy (nlink 1), not a fake hard link. Verified on device with `npx @deepseek-ai/dsh web` (0.2.1-rc.2).

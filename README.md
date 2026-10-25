@@ -1,8 +1,12 @@
 # Sandshell
 
-![Platform](https://img.shields.io/badge/platform-Android%2016%2B-3ddc84) ![Arch](https://img.shields.io/badge/arch-AArch64-blue) ![Base](https://img.shields.io/badge/Debian-Bullseye%20ARM64-A80030) ![Root](https://img.shields.io/badge/root-not%20required-brightgreen) ![Runtime](https://img.shields.io/badge/runtime-no%20PRoot%20%2F%20no%20ptrace%20core-orange) ![Validation](https://img.shields.io/badge/device%20validation-18%2F18%20passed-success)
+![Platform](https://img.shields.io/badge/platform-Android%2016%2B-3ddc84) ![Arch](https://img.shields.io/badge/arch-AArch64-blue) ![Base](https://img.shields.io/badge/Debian-13%20trixie%20ARM64-A80030) ![Root](https://img.shields.io/badge/root-not%20required-brightgreen) ![Runtime](https://img.shields.io/badge/runtime-no%20PRoot%20%2F%20no%20ptrace%20core-orange) ![Validation](https://img.shields.io/badge/device%20validation-18%2F18%20passed-success)
 
 **English** | [简体中文](README.zh-CN.md)
+
+> **2026-10-25 — 0.1.3: Debian 13 trixie.** The userland moves from Debian 11 Bullseye to **Debian 13 trixie (ARM64, glibc 2.41)**. Existing installs migrate on first launch: the old Bullseye rootfs is kept aside as a rollback backup (`/root/.bullseye-rootfs`), `/root` and `/home` are carried over, and the manually installed package list is saved for reinstall. Device-verified on the 0.1.3 development builds (t13j–t13k): `apt update` / `apt install` (jq, python3 3.13.5), `apt --fix-broken install`, Node.js with npm 10.9.9 including global installs, relative and absolute symlinks, directory `chmod`, `python3 -m http.server` + `curl localhost`, and `npx @deepseek-ai/dsh web` (DeepSeek Harness). Design notes: [docs/t13-trixie.md](docs/t13-trixie.md).
+>
+> Two rules from earlier releases changed, deliberately: the seccomp filter now `ALLOW`s a few more syscalls than `wait4(260)` (pathless `prlimit64`, `getrandom` and friends, plus `symlinkat`, whose paths are translated by a preload before they reach the kernel), and ordinary symlinks are now real symlinks. What did not change: nothing fakes success. Android's SELinux forbids hard links for apps (`link()` → `EACCES`); that error is returned as is, and only the `dsh` / `npx @deepseek-ai/dsh` commands load a Node fallback that publishes a copy via `rename()` instead (target exists → `EEXIST`).
 
 > **2026-09-13 — Renamed to Sandshell.** The Debian trademark team declined this project's previous name ("Debian Mobile"), the Debian swirl launcher icon, and the `com.debian.*` package namespace (2026-08-28); the v0.1 release and the dev-archive were withdrawn the same day. The project is now renamed **Sandshell** (`dev.sandshell.core`), and a re-identified v0.1 build has passed device regression and been re-released. What remains true and permitted: this app runs an unmodified Debian Bullseye ARM64 userland, and honest, non-misleading statements to that effect are fine. See [docs/trademark.md](docs/trademark.md).
 
@@ -269,6 +273,8 @@ The deeper structural fact, learned in this line and priced into every future pl
 8. **No arbitrary writable filesystem.** Writes are whitelisted to app-private rootfs paths; everything else gets `EROFS`, including paths Debian tooling sometimes expects (a deliberate boundary, documented in the development history).
 9. **Newly written executables can hit `Text file busy` (ETXTBSY) in the 0.1 build.** Every write-open made by a guest process leaks one write descriptor in the app-side supervisor (the same ADDFD leak documented in Case 6); a file written through the logical Debian paths cannot be executed until the app restarts. The one-line fix from the later internal line is not part of this release. Device-verified workaround: write through the physical rootfs path (`/data/user/0/<app>/files/debian/...`), which does not leak, and execute from there.
 10. **Executables must live inside the Debian rootfs tree.** Binaries under `/tmp` or the interop bridge (`/mnt/sdcard`) are readable and copyable, but not executable (`execve` fails with `ENOENT`); copy them into the rootfs (preferably via the physical path) before running.
+11. **No hard links.** Android SELinux forbids `link()`/`linkat()` for apps; you get a real `EACCES`. dpkg and the `dsh` commands have targeted copy fallbacks; other programs see the error.
+12. **High-number syscalls in non-glibc programs.** The runtime preload covers glibc processes; static or non-glibc binaries that issue newer syscalls (number ≥ 260) directly may still get `ENOSYS`.
 
 ## Verification Philosophy
 

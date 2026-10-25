@@ -1,8 +1,12 @@
 # Sandshell
 
-![平台](https://img.shields.io/badge/platform-Android%2016%2B-3ddc84) ![架构](https://img.shields.io/badge/arch-AArch64-blue) ![基础](https://img.shields.io/badge/Debian-Bullseye%20ARM64-A80030) ![Root](https://img.shields.io/badge/root-not%20required-brightgreen) ![运行时](https://img.shields.io/badge/runtime-no%20PRoot%20%2F%20no%20ptrace%20core-orange) ![验证](https://img.shields.io/badge/device%20validation-18%2F18%20passed-success)
+![平台](https://img.shields.io/badge/platform-Android%2016%2B-3ddc84) ![架构](https://img.shields.io/badge/arch-AArch64-blue) ![基础](https://img.shields.io/badge/Debian-13%20trixie%20ARM64-A80030) ![Root](https://img.shields.io/badge/root-not%20required-brightgreen) ![运行时](https://img.shields.io/badge/runtime-no%20PRoot%20%2F%20no%20ptrace%20core-orange) ![验证](https://img.shields.io/badge/device%20validation-18%2F18%20passed-success)
 
 [English](README.md) | **简体中文**
+
+> **2026-10-25 — 0.1.3：Debian 13 trixie。** 用户态从 Debian 11 Bullseye 升级到 **Debian 13 trixie（ARM64，glibc 2.41）**。已有安装在首次启动时自动迁移：旧 Bullseye rootfs 保留为回滚备份（`/root/.bullseye-rootfs`），`/root` 与 `/home` 原样带过来，手动安装的软件包清单另存以便重装。0.1.3 开发构建（t13j–t13k）真机已验证：`apt update` / `apt install`（jq、python3 3.13.5）、`apt --fix-broken install`、Node.js + npm 10.9.9（含全局安装）、相对/绝对符号链接、目录 `chmod`、`python3 -m http.server` + `curl localhost`、`npx @deepseek-ai/dsh web`（DeepSeek Harness）。设计记录见 [docs/t13-trixie.md](docs/t13-trixie.md)。
+>
+> 有两条旧规则是有意改掉的：seccomp 过滤器不再只放行 `wait4(260)`，还放行了少数无路径的调用（`prlimit64`、`getrandom` 等）以及 `symlinkat`（路径先经 preload 翻译再进内核）；普通符号链接现在是真符号链接。不变的是：绝不伪造成功。Android SELinux 禁止应用创建硬链接（`link()` → `EACCES`），这个错误照实返回；只有 `dsh` / `npx @deepseek-ai/dsh` 命令会加载一个 Node 兜底，改为复制后 `rename()` 发布（目标已存在则 `EEXIST`）。
 
 > **2026-09-13 — 已更名为 Sandshell。** Debian 商标团队拒绝了本项目此前的应用名（"Debian Mobile"）、Debian 漩涡启动器图标与 `com.debian.*` 包名（2026-08-28）；v0.1 发行版与 dev-archive 当日撤下。项目现已更名为 **Sandshell**（`dev.sandshell.core`），更名重构后的 v0.1 构建已通过真机回归并重新发布。不变且仍被允许的事实是：本应用运行未经修改的 Debian Bullseye（ARM64）用户态——如实、不误导的说明性表述没有问题。见 [docs/trademark.md](docs/trademark.md)。
 
@@ -269,6 +273,8 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 8. **没有任意可写文件系统。** 写操作白名单限于应用私有 rootfs 路径；其余一律 `EROFS`，包括 Debian 工具链有时会期待可写的路径（这是刻意划定的边界，记录在开发历程中）。
 9. **在 0.1 构建中，新写入的二进制可能报 `Text file busy`（ETXTBSY）。** guest 进程的每次写打开都会在 App 侧监督进程中泄漏一个写描述符（即案卷 6 记录的同一个 ADDFD 泄漏）；经逻辑 Debian 路径写入的文件在 App 重启前无法执行。后续内部线的一行修复未包含在本发行版中。已真机验证的绕行：改用 rootfs 物理路径（`/data/user/0/<包名>/files/debian/...`）写入——物理写不泄漏——并从那里执行。
 10. **可执行文件必须位于 Debian rootfs 树内。** `/tmp` 与互通桥（`/mnt/sdcard`）中的文件可读可复制，但不可执行（`execve` 报 `ENOENT`）；请先复制进 rootfs（推荐经物理路径）再执行。
+11. **没有硬链接。** Android SELinux 禁止应用调用 `link()`/`linkat()`，你会得到真实的 `EACCES`。dpkg 与 `dsh` 命令有针对性的复制兜底，其他程序照常看到这个错误。
+12. **非 glibc 程序的高号系统调用。** 运行时 preload 只覆盖 glibc 进程；直接发出较新系统调用（编号 ≥ 260）的静态或非 glibc 程序仍可能得到 `ENOSYS`。
 
 ## 验证哲学
 

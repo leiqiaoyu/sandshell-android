@@ -4,6 +4,8 @@
 
 [English](README.md) | **简体中文**
 
+> **2026-11-01 — 0.1.4：Claude Code 工具调用可用。** Claude Code 这类 Bun 编译的原生程序会用 `O_PATH` 打开文件；监督者的 `openat` 处理通过 `SECCOMP_IOCTL_NOTIF_ADDFD` 注入文件描述符，而内核拒绝注入 `O_PATH` 文件，于是这类打开全部返回 `EBADF`，Claude Code 的 Write/Bash 工具卡死。0.1.4 改为以非阻塞只读方式打开。真机验证：Claude Code 2.1.316 的 Write、Bash、在 Claude Code 内 `apt install git`，以及完整的 git init/编辑/提交/diff 流程。另外：`ln -s` 绝对目标存 rootfs 内路径（`/dev`、`/proc`、`/sdcard` 等安卓路径保持原样）；Bullseye 回滚备份移出 `/root` 放到应用存储，过期 rootfs 包自动删除；移除 musl 时代资源与部署代码；终端 bashrc 从 3.23 MB 缩到 0.69 MB。**公开版不再附带 opencode**（0.1.3 误带了一个，其 Bun 版本有 brotli 漏洞）；升级会删除那份内置副本，配置保留，`npm i -g opencode-ai` 装的不受影响。
+>
 > **2026-10-25 — 0.1.3：Debian 13 trixie。** 用户态从 Debian 11 Bullseye 升级到 **Debian 13 trixie（ARM64，glibc 2.41）**。已有安装在首次启动时自动迁移：旧 Bullseye rootfs 保留为回滚备份（`/root/.bullseye-rootfs`），`/root` 与 `/home` 原样带过来，手动安装的软件包清单另存以便重装。0.1.3 开发构建（t13j–t13k）真机已验证：`apt update` / `apt install`（jq、python3 3.13.5）、`apt --fix-broken install`、Node.js + npm 10.9.9（含全局安装）、相对/绝对符号链接、目录 `chmod`、`python3 -m http.server` + `curl localhost`、`npx @deepseek-ai/dsh web`（DeepSeek Harness）。设计记录见 [docs/t13-trixie.md](docs/t13-trixie.md)。
 >
 > 有两条旧规则是有意改掉的：seccomp 过滤器不再只放行 `wait4(260)`，还放行了少数无路径的调用（`prlimit64`、`getrandom` 等）以及 `symlinkat`（路径先经 preload 翻译再进内核）；普通符号链接现在是真符号链接。不变的是：绝不伪造成功。Android SELinux 禁止应用创建硬链接（`link()` → `EACCES`），这个错误照实返回；只有 `dsh` / `npx @deepseek-ai/dsh` 命令会加载一个 Node 兜底，改为复制后 `rename()` 发布（目标已存在则 `EEXIST`）。
@@ -138,11 +140,11 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 
 ## 安装与使用
 
-**当前版本：[0.1.3](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.3)（2026-10-25），Debian 13 trixie。** 在发布页下载 `sandshell-v0.1.3.apk`。
+**当前版本：[0.1.4](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.4)（2026-11-01），Debian 13 trixie。** 在发布页下载 `sandshell-v0.1.4.apk`。
 
-- APK SHA-256：`e1cf7df34a897285ffe47e0689cdfbf49b87e2a89cd02cbafc03defe6f8d70fc`
+- APK SHA-256：`068ee97722d12c54c2df340433b59b556316417043e4af42264aab6821a91906`
 - 签名证书 SHA-256：`77077a32d902cdae4a8a04860071070e0cab8f26673f847bcbd61cd62cb69920`
-- `dev.sandshell.core`，versionName 0.1.3，versionCode 1015。可覆盖安装同一签名的旧 Sandshell 构建；首次启动会把已有的 Bullseye rootfs 迁移到 trixie（旧系统保留在 `/root/.bullseye-rootfs`，确认无误后可删除）。
+- `dev.sandshell.core`，versionName 0.1.4，versionCode 1020。可覆盖安装同一签名的旧 Sandshell 构建；已有的 Bullseye rootfs 首次启动迁移到 trixie，旧的作为回滚备份留在应用存储里，直到你删除。
 
 以下说明针对最初的 0.1 发行版。
 

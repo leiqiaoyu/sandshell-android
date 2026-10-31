@@ -4,6 +4,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+> **2026-11-01 — 0.1.4: Claude Code tools work.** Native (Bun-compiled) programs such as Claude Code open files with `O_PATH`; the supervisor's `openat` handler injected those through `SECCOMP_IOCTL_NOTIF_ADDFD`, which the kernel refuses for `O_PATH` files, so every such open returned `EBADF` and Claude Code's Write/Bash tools hung. 0.1.4 opens them as non-blocking read-only instead. Device-verified: Claude Code 2.1.316 Write, Bash, `apt install git` from inside Claude Code, and a full git init/edit/commit/diff workflow. Also: `ln -s` with absolute targets stores the in-rootfs path (Android paths such as `/dev`, `/proc`, `/sdcard` stay as written); the Bullseye rollback backup moves out of `/root` to app storage and stale rootfs archives are deleted; musl-era assets and deploy code are gone; the PTY bashrc shrinks from 3.23 MB to 0.69 MB. **Public builds no longer bundle opencode** (0.1.3 shipped one by mistake, an older Bun with a brotli vulnerability); upgrading removes that bundled copy, its config stays, and `npm i -g opencode-ai` is untouched.
+>
 > **2026-10-25 — 0.1.3: Debian 13 trixie.** The userland moves from Debian 11 Bullseye to **Debian 13 trixie (ARM64, glibc 2.41)**. Existing installs migrate on first launch: the old Bullseye rootfs is kept aside as a rollback backup (`/root/.bullseye-rootfs`), `/root` and `/home` are carried over, and the manually installed package list is saved for reinstall. Device-verified on the 0.1.3 development builds (t13j–t13k): `apt update` / `apt install` (jq, python3 3.13.5), `apt --fix-broken install`, Node.js with npm 10.9.9 including global installs, relative and absolute symlinks, directory `chmod`, `python3 -m http.server` + `curl localhost`, and `npx @deepseek-ai/dsh web` (DeepSeek Harness). Design notes: [docs/t13-trixie.md](docs/t13-trixie.md).
 >
 > Two rules from earlier releases changed, deliberately: the seccomp filter now `ALLOW`s a few more syscalls than `wait4(260)` (pathless `prlimit64`, `getrandom` and friends, plus `symlinkat`, whose paths are translated by a preload before they reach the kernel), and ordinary symlinks are now real symlinks. What did not change: nothing fakes success. Android's SELinux forbids hard links for apps (`link()` → `EACCES`); that error is returned as is, and only the `dsh` / `npx @deepseek-ai/dsh` commands load a Node fallback that publishes a copy via `rename()` instead (target exists → `EEXIST`).
@@ -138,11 +140,11 @@ When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` pat
 
 ## Getting Started
 
-**Current release: [0.1.3](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.3) (2026-10-25), Debian 13 trixie.** Download `sandshell-v0.1.3.apk` from the release page.
+**Current release: [0.1.4](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.4) (2026-11-01), Debian 13 trixie.** Download `sandshell-v0.1.4.apk` from the release page.
 
-- APK SHA-256: `e1cf7df34a897285ffe47e0689cdfbf49b87e2a89cd02cbafc03defe6f8d70fc`
+- APK SHA-256: `068ee97722d12c54c2df340433b59b556316417043e4af42264aab6821a91906`
 - Signing certificate SHA-256: `77077a32d902cdae4a8a04860071070e0cab8f26673f847bcbd61cd62cb69920`
-- `dev.sandshell.core`, versionName 0.1.3, versionCode 1015. Installs over earlier Sandshell builds signed with the same key; the first launch migrates an existing Bullseye rootfs to trixie (the old one is kept at `/root/.bullseye-rootfs` until you delete it).
+- `dev.sandshell.core`, versionName 0.1.4, versionCode 1020. Installs over earlier Sandshell builds signed with the same key; an existing Bullseye rootfs is migrated to trixie on first launch, with the old one kept as a rollback backup in app storage until you delete it.
 
 The history below describes the original 0.1 release.
 

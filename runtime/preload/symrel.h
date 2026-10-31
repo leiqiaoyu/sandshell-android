@@ -61,7 +61,13 @@ static int ss_symrel(const char *t,int d,const char *linkp,char *out,size_t n){
 static int ss_symlinkat(const char *t,int d,const char *p){
     if(!t || !p){ errno=EFAULT; return -1; }
     char rel[PATH_MAX], phys[PATH_MAX];
-    if(t[0]=='/' && ss_symrel(t,d,p,rel,sizeof rel)==0) t=rel;
+    /* t15 (0.1.4-rc3): an absolute target already spelled physically ($DEBIAN_ROOTFS/x) is first mapped back to
+       its Debian path (/x), otherwise it was relativized as "../../data/user/0/..." (dangling; seen with Bun 1.4.4
+       and `ln -s $DEBIAN_ROOTFS/x l`). Absolute targets in Android's own tree (/proc, /dev, /sdcard, /data outside
+       the rootfs...) stay absolute: the kernel resolves those correctly as-is. */
+    if(t[0]=='/'){ const char *tv=ss_unphys(t);
+        if(!tv && ss_is_virtual(t)) tv=t;
+        if(tv && ss_symrel(tv,d,p,rel,sizeof rel)==0) t=rel; }
     if(ss_is_virtual(p) && !ss_unphys(p)){
         if(snprintf(phys,sizeof phys,"%s%s",ss_rootfs(),p)>=(int)sizeof phys){ errno=ENAMETOOLONG; return -1; }
         p=phys; d=AT_FDCWD; }

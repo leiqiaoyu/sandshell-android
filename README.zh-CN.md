@@ -132,7 +132,7 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 | 不新增高号 `ALLOW` | `wait4(260)` 是唯一一个，为作业控制而存在 |
 | 诚实的 `ENOSYS` | 不支持的系统调用按不支持失败，绝不伪造成功 |
 | 受控写面 | 写操作只落在应用私有 rootfs 的白名单路径，其余一律 `EROFS` |
-| 不向 rootfs 预装第三方业务工具 | 0.1.3 以应用原生库形式附带官方 glibc Node 22 / npm 与一个 opencode 构建；用户用 apt/npm 自行安装的其他软件风险自负 |
+| 不向 rootfs 预装第三方业务工具 | 0.1.3 以应用原生库形式附带官方 glibc Node 22 / npm（同时误带了一个 opencode 构建，0.1.4 公开版移除）；用户用 apt/npm 自行安装的其他软件风险自负 |
 
 介绍本项目时，准确的措辞是："在应用私有 rootfs 内，通过 seccomp `USER_NOTIF` 进行路径调解与受控 fd 注入"。不准确的措辞，包括"绕过 Android 沙盒""Root 了""完整 chroot"，请大家避免使用。
 
@@ -267,7 +267,9 @@ README 的这一部分是我们真正引以为豪的部分。下面每个案卷�
 
 **状态。** 最初被冻结：这条线的提取与 wrapper 脚本已经写好并经过评审，但被刻意地搁置；精力转向开源——在那段时间里，任何版本的 opencode 都未曾在这里跑通过。此线现已被重新审视并**解冻**：2026-09-25，opencode v1.18.21（官方 **musl 构建**，`opencode-linux-arm64-musl`）在同一无特权沙盒内完整跑通——`opencode --version` → `1.18.21`（退出码 0）、`opencode --help` → 完整 CLI（16 个子命令），命令安装于 `/usr/local/bin/opencode`。胜出的配方复用了本项目自己的弯路：案卷 3 的 musl 路线（`ld-musl` 加显式 `--library-path`）、`noshm3` 预加载垫片（同时顶替默认的 glibc 预加载钩子）、一个可写的 `$HOME`（Bun 启动时会 `mkdir($HOME)`，而系统区是 `EROFS`），以及案卷 5 的 wrapper 纪律——显式调用物理加载器。值得注意：官方 musl 构建是*动态链接*的，因此仍可被垫片拦截；静态构建则依然在触及范围之外，正如下方边界所警告。
 
-**复现。** 一键安装脚本随仓库提供：[`scripts/install-opencode.sh`](scripts/install-opencode.sh)。把官方 musl 包放到 `/mnt/sdcard/oc-musl.tgz`，在 Debian 终端运行该脚本；它会安装二进制与 wrapper，并用 `opencode --version` 自检。
+**更新（0.1.3）。** 0.1.3 已移除 musl 运行时，本配方与 `scripts/install-opencode.sh` 失效，仅作历史保留。0.1.3 误内置了官方 glibc 版 opencode（`opencode-g`），release note 与验证清单都未提及；它在维护者测试机上可用（trixie 上 1.19.4，2026-10-31），0.1.4 起公开版移除。详见 [docs/t13-trixie.md](docs/t13-trixie.md)。
+
+**复现（历史）。** 一键安装脚本随仓库提供：[`scripts/install-opencode.sh`](scripts/install-opencode.sh)。把官方 musl 包放到 `/mnt/sdcard/oc-musl.tgz`，在 Debian 终端运行该脚本；它会安装二进制与 wrapper，并用 `opencode --version` 自检。
 
 **教训。** 有些墙是承重墙。精确地画出哪些失败类别在兼容层内可修（路径、fd 泄漏、加载器路由），哪些不可修（继承的 `KILL` 优先级、内核内部的解释器打开、静态二进制的裸 `svc`），这本身就是一份交付物。
 

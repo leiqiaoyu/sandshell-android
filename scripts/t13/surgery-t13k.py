@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Sandshell Stage 2 surgery (v0.1.2-gexec-r2), derived from P0 r2 surgery: manifest version bump + asset swaps + zip rebuild.
+"""NOTE (2026-10-31): docstring below is inherited from the abandoned 0.1.2-gexec line (never released).
+This script builds 0.1.3 directly from v0.1.1 (code 1003). Asset name debian-bookworm-arm64-minbase.tar is kept
+because the dex looks it up by name; its content is Debian 13 trixie.
+
+Sandshell Stage 2 surgery (v0.1.2-gexec-r2), derived from P0 r2 surgery: manifest version bump + asset swaps + zip rebuild.
 
 Base: v0.1.1 release APK. The diagnostic slot
 'assets/getrandom-observer-arm64.bin' (deployed as

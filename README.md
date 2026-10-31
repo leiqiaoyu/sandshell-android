@@ -132,7 +132,7 @@ The security posture is asymmetric on purpose: Android's rules always win.
 | No new high-numbered `ALLOW` | `wait4(260)` is the only one, required for job control |
 | Honest `ENOSYS` | Unsupported syscalls fail as unsupported; we never fake success |
 | Controlled write surface | Writes go to whitelisted paths in the app-private rootfs; everything else gets `EROFS` |
-| No third-party business tools preinstalled into the rootfs | 0.1.3 ships official glibc Node 22 / npm and an opencode build as native libraries of the app; anything else the user installs with apt/npm at their own risk |
+| No third-party business tools preinstalled into the rootfs | 0.1.3 ships official glibc Node 22 / npm as native libraries of the app (it also bundled an opencode build by mistake; removed from public builds in 0.1.4); anything else the user installs with apt/npm at their own risk |
 
 When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` path mediation with controlled fd injection inside an app-private rootfs". The inaccurate phrasings, which we ask everyone to avoid, include "Android sandbox bypass", "root", and "full chroot".
 
@@ -267,7 +267,9 @@ The deeper structural fact, learned in this line and priced into every future pl
 
 **Status.** Originally frozen: the extraction and wrapper scripts for this line were written and reviewed but deliberately never executed, to prioritize open-sourcing — and for a time, no version of opencode had run to completion here. The line has since been revisited and **unfrozen**. On 2026-09-25, opencode v1.18.21 — the official **musl build** (`opencode-linux-arm64-musl`) — ran to completion inside the same unprivileged sandbox: `opencode --version` → `1.18.21` (exit 0), `opencode --help` → the full CLI (16 subcommands), installed as `/usr/local/bin/opencode`. The winning recipe reuses this project's own detours: the musl route of case 3 (`ld-musl` with an explicit `--library-path`), the `noshm3` preload shims (which also displace the default glibc preload hook), a writable `$HOME` (Bun's startup performs `mkdir($HOME)`, and system areas are `EROFS`), and explicit physical-loader invocation under the wrapper discipline of case 5. Note what made this possible: the official musl build is *dynamically linked*, so it remains shimmable — a static build would have stayed out of reach, as the boundaries below warn.
 
-**Reproducing.** A one-shot installer ships as [`scripts/install-opencode.sh`](scripts/install-opencode.sh): place the official musl package at `/mnt/sdcard/oc-musl.tgz`, run the script in the Debian terminal; it installs the binary and wrapper, then self-verifies with `opencode --version`.
+**Update (0.1.3).** The musl runtime was removed in 0.1.3, so this recipe and `scripts/install-opencode.sh` are obsolete and kept for history. 0.1.3 bundled an official glibc opencode build (`opencode-g`) by mistake; it was not in the release notes or the verification list. It runs on the maintainer's test device (1.19.4 on trixie, 2026-10-31), and public builds drop it from 0.1.4 on. See [docs/t13-trixie.md](docs/t13-trixie.md).
+
+**Reproducing (historical).** A one-shot installer ships as [`scripts/install-opencode.sh`](scripts/install-opencode.sh): place the official musl package at `/mnt/sdcard/oc-musl.tgz`, run the script in the Debian terminal; it installs the binary and wrapper, then self-verifies with `opencode --version`.
 
 **Lesson.** Some walls are load-bearing. Mapping precisely which failure classes are fixable in the compatibility layer (paths, fd leaks, loader routing) and which are not (inherited `KILL` priorities, kernel-internal interpreter opens, raw `svc` from static binaries) is itself a deliverable.
 

@@ -1,6 +1,10 @@
 # t13：升级到 Debian 13 trixie（开发记录，2026-10-25）
 
-状态：候选版，未正式发布。真机基线 `0.1.3-trixie-t13j`（versionCode 1013），`t13k`（1014）待验证。
+状态：**已正式发布为 0.1.3**（versionCode 1015，2026-10-25，GitHub Release `v0.1.3`）。下文的 t13j（1013）/t13k（1014）是开发过程中的真机基线，保留作记录。
+
+> **版本线说明：0.1.2-gexec 已废弃。** 曾批过的 versionCode 1005 / `0.1.2-gexec`（musl exec 垫片 `libexec_shim_musl.so`）从未发布。glibc 路线走通后不再需要 musl 垫片，0.1.3 直接由 v0.1.1（code 1003）手术构建，所以 `scripts/t13/surgery-*.py` 断言 `cur_name == '0.1.1'`。版本号从 0.1.1 跳到 0.1.3 不是丢了一个版本。
+
+> **asset 命名债：** 0.1.3 的 `assets/debian-bookworm-arm64-minbase.tar` 里装的是 **Debian 13 trixie**（0.1.2 及以前装的是 bullseye 11）。dex 按文件名查找，0.1.3 未改名；0.1.4 起改为 `debian-trixie-arm64-rootfs.tar`。
 
 ## 真机已验证
 - Debian 13 trixie rootless 启动；旧 Debian 11 自动迁移（旧系统改名备份可回滚，`/root`、`/home` 迁入新系统）
@@ -33,9 +37,15 @@ echo 'export NODE_OPTIONS="--require /usr/local/lib/sandshell/node-linkfix.cjs${
 
 ## 待办
 - 非 glibc 程序的高号 syscall（≥260）仍拿到 ENOSYS
-- 迁移备份移出 `/root`
+- 迁移备份移出 `/root`（0.1.4 候选已做，未发布）
 - TUI 长按拖动未测
-- README 与 Release 在正式发布时更新
+
+## opencode 在 0.1.3 上的状态
+- 0.1.3 APK 内含 `lib/arm64-v8a/libopencode_glibc.so`（官方 glibc 构建 opencode 1.18.21，命令 `opencode-g`）。**这是失误**：违反“不预装第三方业务工具”的规则，且未写进 release note 和验证清单。
+- 证据：glibc opencode 曾在维护者测试机上跑通完整真实 API 会话（bullseye 时期）；trixie 上 1.19.4 于 2026-10-31 在测试机确认 `--version` 与正常对话。0.1.3 发布包内的 1.18.21 本身没有单独的真机记录。
+- 0.1.3 内置的 1.18.21（Bun 1.3.14）受 CVE-2026-111497（Brotli 越界写）影响。
+- 处理：0.1.4 公开版移除内置 opencode，需要的用户自行 `npm i -g` 安装；带 opencode 的构建只用于维护者测试机。
+- `scripts/install-opencode.sh`（musl + noshm3 路线）随 0.1.3 删除 musl 已失效，仅作历史保留。
 
 ## 0.1.3 (versionCode 1015)
 

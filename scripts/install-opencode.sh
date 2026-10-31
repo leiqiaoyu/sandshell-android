@@ -1,4 +1,5 @@
 #!/bin/sh
+# OBSOLETE since 0.1.3: musl runtime removed. Kept for history (README case 7). Use `npm i -g` on glibc Node instead.
 # install-opencode.sh — one-shot installer for opencode v1.18.x (musl route) inside Sandshell.
 #
 # Reproduce on a fresh Sandshell 0.1 device:

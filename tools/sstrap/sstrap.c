@@ -227,8 +227,10 @@ static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i
   if(argc+4>512){ i64 m=S6(NR_mmap,0,(need+4095)&~4095ul,3,0x22,-1,0); if(m<0)return m; nv=(char**)m; mapped=1; }
   /* try: virtual self, then physical self */
   for(int attempt=0;attempt<2;attempt++){
+    /* physical self first: inside Sandshell the kernel needs the real path for execve */
     i64 e2=0; const char*sp=G_self; char pb[600];
-    if(attempt==1){ sp=v2p(G_self,pb,sizeof pb,&e2); if(e2||sp==G_self)break; }
+    if(attempt==0){ sp=v2p(G_self,pb,sizeof pb,&e2); if(e2)sp=G_self; }
+    else { if(sp==G_self&&!G_plen)break; }
     scpy(self,sp); memcpy(path,pathv,pl+1);
     u64 k=0; nv[k++]=self; nv[k++]=(char*)"--sstrap-exec"; nv[k++]=path;
     if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];

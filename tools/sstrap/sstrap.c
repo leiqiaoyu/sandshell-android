@@ -266,8 +266,28 @@ static i64 emu_rt_sigprocmask(i64 how,const u64*set,u64*old,i64 ssz,u64*ucmask){
 }
 
 /* execve: re-enter the loader so the new image also gets the handler (filter is inherited) */
+/* Sandshell's libc shim rewrites execve(prog) as execve(<apk>/libdebian-ld.so --library-path L <physical prog> args).
+   We load ELFs ourselves, so unwrap it (ps / cmdline / argv[0] then look like plain Linux).
+   Returns the argv index of the real program (0 = not wrapped) and the argv[0] to use. */
+static i64 ldwrap(const char*path,char*const*av,i64 ac,const char**a0){
+  const char*b=path; for(const char*c=path;*c;c++) if(*c=='/') b=c+1;
+  if(!seq(b,"libdebian-ld.so")||ac<2)return 0;
+  i64 i=1; *a0=0;
+  while(i<ac&&av[i][0]=='-'&&av[i][1]=='-'){
+    if(seq(av[i],"--")){i++;break;}
+    if(seq(av[i],"--argv0")&&i+1<ac){*a0=av[i+1];i+=2;continue;}
+    if((seq(av[i],"--library-path")||seq(av[i],"--preload")||seq(av[i],"--audit"))&&i+1<ac){i+=2;continue;}
+    i++; }
+  if(i>=ac)return 0;
+  if(!*a0){ static char vp[4096]; u64 l=slen(av[i]); if(l<sizeof vp){ memcpy(vp,av[i],l+1); i64 nl=p2v(vp,l); vp[nl]=0; *a0=vp; } else *a0=av[i]; }
+  return i;
+}
+
 static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags){
   if(!upath)return -EFAULT;
+  const char*a0ov=0;
+  { i64 ac=0; if(argv)while(argv[ac])ac++; i64 i=argv?ldwrap(upath,argv,ac,&a0ov):0;
+    if(i>0){ upath=argv[i]; argv=argv+i; } else a0ov=0; }
   if(dfd!=AT_FDCWD||(flags&AT_EMPTY_PATH)){ /* PoC: only plain paths */
     if(dfd!=AT_FDCWD&&upath[0]!='/')return -ENOSYS;
   }
@@ -299,6 +319,7 @@ static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i
     scpy(xenv,"SSTRAP_X="); scpy(xenv+9,path); scpy(senv,"SSTRAP_SELF="); scpy(senv+12,G_self);
     u64 k=0;
     if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
+    if(a0ov&&k>0)nv[0]=(char*)a0ov;
     nv[k++]=0; char**ne=nv+k;
     for(u64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X=")&&!spre(envp[i],"SSTRAP_SELF="))nv[k++]=envp[i];
     nv[k++]=senv; nv[k++]=xenv; nv[k]=0;
@@ -585,6 +606,8 @@ void __attribute__((noreturn)) cmain(u64*sp){
   if(reexec){ path=xpath; pargv=argv; }
   else { path=find_prog(argv[1],envp,pbuf); pargv=argv+1; }
   i64 pargc=0; while(pargv[pargc])pargc++;
+  { const char*a0=0; i64 i=ldwrap(path,pargv,pargc,&a0);
+    if(i>0){ path=pargv[i]; pargv+=i; pargc-=i; pargv[0]=(char*)a0; } }
   G_comm_src=path;
 
   /* shebang (up to 4 levels) */

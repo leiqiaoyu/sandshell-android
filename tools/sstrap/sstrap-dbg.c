@@ -83,6 +83,8 @@ static __attribute__((noreturn)) void die(const char*m,i64 e){wr("sstrap: ");wr(
 static char G_prefix[512];   /* physical rootfs, "" = no translation */
 static u64  G_plen;
 static char G_self[512];     /* our own path as the program namespace sees it */
+static i64 G_vfchild;         /* tid of a vfork child running in our (shared) memory */
+static i64 G_traceme;         /* that child asked PTRACE_TRACEME: done for real after its exec */
 static char G_execfn[512];   /* path as exec'd (AT_EXECFN) */
 static char G_exe[512];      /* virtual path of the loaded program (for /proc/self/exe) */
 static int  G_debug;
@@ -326,7 +328,7 @@ static i64 ldwrap_(const char*path,char*const*av,i64 ac,const char**a0,char*vp){
    run the handler on the parent's (small) sigaltstack. So each exec gets its own slot, off-stack.
    A successful exec in a vfork child never releases its slot; reclaim those (owner tid no longer in
    our thread group, held > 1 s) when the pool runs dry. */
-#define XPN 32
+#define XPN 64
 #define XPS 32768
 static char XP[XPN][XPS] __attribute__((aligned(64)));
 static int XPU[XPN]; static i64 XPT[XPN], XPW[XPN];
@@ -336,7 +338,7 @@ static char*xp_get(int*mapped){
   for(int pass=0;pass<2;pass++){
     for(int i=0;i<XPN;i++) if(!__atomic_exchange_n(&XPU[i],1,__ATOMIC_ACQUIRE)){ XPT[i]=tid; XPW[i]=now_s(); return XP[i]; }
     i64 pid=S0(NR_getpid), t=now_s();
-    for(int i=0;i<XPN;i++) if(XPT[i]&&t-XPW[i]>30&&S3(131/*tgkill*/,pid,XPT[i],0)==-3){ XPT[i]=0; __atomic_store_n(&XPU[i],0,__ATOMIC_RELEASE); }
+    for(int i=0;i<XPN;i++) if(XPT[i]&&t-XPW[i]>5&&S3(131/*tgkill*/,pid,XPT[i],0)==-3){ XPT[i]=0; __atomic_store_n(&XPU[i],0,__ATOMIC_RELEASE); }
   }
   i64 m=S6(NR_mmap,0,XPS,3,0x22,-1,0); if(m<0)return 0; *mapped=1; return (char*)m;
 }
@@ -344,11 +346,11 @@ static void xp_put(char*p,int mapped){
   if(mapped){ S2(NR_munmap,(i64)p,XPS); return; }
   int i=(p-XP[0])/XPS; XPT[i]=0; __atomic_store_n(&XPU[i],0,__ATOMIC_RELEASE);
 }
-static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,char*X);
-static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags){
-  int mp; char*X=xp_get(&mp); if(!X)return -12; i64 r=emu_execve_(dfd,upath,argv,envp,flags,X); xp_put(X,mp); return r;
+static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,char*X,const u64*pm);
+static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,const u64*pm){
+  int mp; char*X=xp_get(&mp); if(!X)return -12; i64 r=emu_execve_(dfd,upath,argv,envp,flags,X,pm); xp_put(X,mp); return r;
 }
-static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,char*X){
+static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,char*X,const u64*pm){
   if(!upath)return -EFAULT;
   const char*a0ov=0;
   { i64 ac=0; if(argv)while(argv[ac])ac++; i64 i=argv?ldwrap_(upath,argv,ac,&a0ov,X+13700):0;
@@ -380,15 +382,18 @@ static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,
     scpy(self,sp); memcpy(path,pathv,pl+1);
     /* argv stays exactly the program's (so /proc/PID/cmdline and ps NAME show the program);
        the target path travels in SSTRAP_X=, which the loader strips again */
-    char*xenv=X+8900,*senv=X+13100;
+    char*xenv=X+8900,*senv=X+13100; int tm=G_traceme&&G_traceme==S0(178);
     scpy(xenv,"SSTRAP_X="); scpy(xenv+9,path); scpy(senv,"SSTRAP_SELF="); scpy(senv+12,G_self);
     u64 k=0;
     if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
     if(a0ov&&k>0)nv[0]=(char*)a0ov;
     nv[k++]=0; char**ne=nv+k;
-    for(u64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X=")&&!spre(envp[i],"SSTRAP_SELF="))nv[k++]=envp[i];
-    nv[k++]=senv; nv[k++]=xenv; nv[k]=0;
+    for(u64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X=")&&!spre(envp[i],"SSTRAP_SELF=")&&!spre(envp[i],"SSTRAP_TM="))nv[k++]=envp[i];
+    nv[k++]=senv; nv[k++]=xenv; if(tm)nv[k++]=(char*)"SSTRAP_TM=1"; nv[k]=0;
+    /* the new image inherits the signal mask: give it the program's, not the handler's (all blocked) */
+    if(pm){ u64 m=*pm&~SIGSYS_BIT; S4(NR_rt_sigprocmask,2,(i64)&m,0,8); }
     r=S3(NR_execve,self,nv,ne);
+    if(pm){ u64 m=~SIGSYS_BIT; S4(NR_rt_sigprocmask,2,(i64)&m,0,8); }
     if(G_debug){wr("[sstrap] execve self '");wr(sp);wr("' -> ");wrn(r);wr(" (self now '");wr(self);wr("')\n");}
   }
   if(mapped)S2(NR_munmap,nv,(need+4095)&~4095ul);
@@ -398,6 +403,20 @@ static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,
 /* ---------------- the SIGSYS handler ---------------- */
 static void dbg(i64 nr,i64 ret){ if(!G_debug)return; wr("[sstrap] nr=");wrn(nr);wr(" -> ");wrn(ret);wr("\n"); }
 
+static void __attribute__((noreturn,noinline)) vfork_child_return(struct uctx*uc,u64 newsp){
+  G_vfchild=S0(178);
+  int mp; char*st=xp_get(&mp);
+  if(!st){ S1(NR_exit_group,127); for(;;); }
+  /* copy the whole signal frame (siginfo + ucontext incl. fp/sve records) to the private stack */
+  char*fr=(char*)uc-128; u64 len=128+sizeof(struct uctx)+4096+512; len=(len+15)&~15ul;
+  char*nf=st+XPS-len; nf=(char*)((u64)nf&~15ul); memcpy(nf,fr,len);
+  struct uctx*nu=(struct uctx*)(nf+128);
+  nu->regs[0]=0; if(newsp) nu->sp=newsp;
+  nu->ss_sp=(u64)st; nu->ss_size=XPS; nu->ss_flags=0;   /* sigreturn installs it as this child's altstack */
+  nu->uc_sigmask&=~SIGSYS_BIT;
+  __asm__ volatile("mov sp, %0\n mov x8, #139\n svc #0\n"::"r"(nf):"x8","memory");
+  for(;;);
+}
 static void handler(int sig,struct sinfo*si,struct uctx*uc){
   (void)sig;
   u64*R=uc->regs; i64 nr=si->syscall; i64 ret=-ENOSYS;
@@ -494,10 +513,18 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
       if(ret==-ENOENT||ret==-EACCES||ret==-EPERM) ret=SL(88,a0,a1,a2,a3,0); }
     break;
   case NR_getuid: case 175: case NR_getgid: case 177: ret=0; break;
+  /* vfork children: a traced one would stop on our own SIGSYS (its execve is trapped) while the tracer
+     is still blocked in vfork -> deadlock (gdb run). So vforks run here, the child gets its own signal
+     stack (the parent's frame lives on the shared one), and its PTRACE_TRACEME waits until its exec. */
+  case 117: if(a0==0&&G_vfchild&&G_vfchild==S0(178)){ G_traceme=G_vfchild; ret=0; } else ret=S4(117,a0,a1,a2,a3); break;
+  case 220/*clone with CLONE_VFORK*/:
+    ret=sc6(220,a0,0,a2,a3,a4,0);
+    if(ret==0) vfork_child_return(uc,a1);   /* never returns */
+    break;
   case 158/*getgroups*/: if(a0==0)ret=1; else if(a0<0)ret=-EINVAL; else { ((u32*)a1)[0]=0; ret=1; } break;
   case NR_readlinkat: ret=emu_readlinkat(a0,(const char*)a1,(char*)a2,a3); break;
-  case NR_execve: pool_put(b1); b1=0; ret=emu_execve(AT_FDCWD,(const char*)a0,(char*const*)a1,(char*const*)a2,0); break;
-  case NR_execveat: pool_put(b1); b1=0; ret=emu_execve(a0,(const char*)a1,(char*const*)a2,(char*const*)a3,a4); break;
+  case NR_execve: pool_put(b1); b1=0; ret=emu_execve(AT_FDCWD,(const char*)a0,(char*const*)a1,(char*const*)a2,0,&uc->uc_sigmask); break;
+  case NR_execveat: pool_put(b1); b1=0; ret=emu_execve(a0,(const char*)a1,(char*const*)a2,(char*const*)a3,a4,&uc->uc_sigmask); break;
   /* ---- keep SIGSYS deliverable ---- */
   case NR_rt_sigaction: ret=emu_rt_sigaction(a0,(const struct ksigaction*)a1,(struct ksigaction*)a2,a3); break;
   case NR_rt_sigprocmask: ret=emu_rt_sigprocmask(a0,(const u64*)a1,(u64*)a2,a3,(u64*)&uc->uc_sigmask); break;
@@ -520,6 +547,7 @@ struct sock_fprog { u16 len; struct sock_filter*filter; };
 #define BPF_JMP 0x05
 #define BPF_JEQ 0x10
 #define BPF_JGE 0x30
+#define BPF_JSET 0x40
 #define BPF_K 0x00
 #define BPF_RET 0x06
 #define STMT(c,k) ((struct sock_filter){(u16)(c),0,0,(u32)(k)})
@@ -534,7 +562,7 @@ static const int TRAPPED[]={NR_openat,NR_unlinkat,88,158,NR_fstat,NR_newfstatat,
   NR_getcwd,NR_readlinkat,NR_execve,NR_execveat,NR_rt_sigaction,NR_rt_sigprocmask,
   /* also catch Android-killed ones ourselves so behaviour is identical everywhere */
   NR_rseq,NR_set_robust_list,NR_accept,NR_setuid,NR_setgid,NR_setreuid,NR_setregid,NR_setresuid,NR_setresgid,
-  NR_setgroups,NR_setfsuid,NR_setfsgid,NR_mount,NR_shmget,NR_io_uring_setup,NR_futex_waitv,435,-1};
+  NR_setgroups,NR_setfsuid,NR_setfsgid,NR_mount,NR_shmget,NR_io_uring_setup,NR_futex_waitv,435,117/*ptrace*/,-1};
 
 static void install_filter(void){
   static struct sock_filter f[128]; int n=0;
@@ -556,6 +584,11 @@ static void install_filter(void){
   f[n++]=JUMP(BPF_JMP|BPF_JGE|BPF_K,REGION_LOW_LIMIT,1,0);
   f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);                /* issued by sstrap itself */
   f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,0);                         /* nr */
+  f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,220,0,4);                   /* clone(CLONE_VFORK) -> trap */
+  f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,16);
+  f[n++]=JUMP(BPF_JMP|BPF_JSET|BPF_K,0x4000,0,1);
+  f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_TRAP);
+  f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
   /* openat: only read-only opens are fast-pathed; writes/creates keep the supervisor's policy */
   int cnt=0; while(TRAPPED[cnt]>=0)cnt++;
   for(int i=0;i<cnt;i++) f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,TRAPPED[i],(u8)(cnt-i),0);
@@ -687,7 +720,7 @@ void __attribute__((noreturn)) cmain(u64*sp){
       scpy(d+G_plen,"/run/shm"); if(S3(NR_mkdirat,AT_FDCWD,d,01777)==0) S3(NR_fchmodat,AT_FDCWD,d,01777); }
     char pb0[4096]; const char*p0=find_prog(argv[1],envp,pb0);
     install_filter();
-    i64 r=emu_execve(AT_FDCWD,p0,argv+1,envp,0);
+    i64 r=emu_execve(AT_FDCWD,p0,argv+1,envp,0,0);
     die("exec program",r);
   }
   const char*path; char**pargv; char pbuf[4096];
@@ -749,12 +782,15 @@ void __attribute__((noreturn)) cmain(u64*sp){
   u64 words=1+pargc+1+envc+1+(naux+1)*2;
   u64*nsp=(u64*)(((u64)m+ssz-256-words*8)&~15ul);
   u64*w=nsp; *w++=pargc; for(i64 i=0;i<pargc;i++)*w++=(u64)pargv[i]; *w++=0;
-  for(i64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X="))*w++=(u64)envp[i]; *w++=0;
+  int tme=0; for(i64 i=0;i<envc;i++){ if(spre(envp[i],"SSTRAP_TM="))tme=1; else if(!spre(envp[i],"SSTRAP_X="))*w++=(u64)envp[i]; } *w++=0;
   for(u64 i=0;i<naux;i++){ u64 t=auxv[i*2],v=auxv[i*2+1];
     switch(t){ case AT_PHDR:v=P.phdr;break; case AT_PHNUM:v=P.phnum;break; case AT_PHENT:v=sizeof(Phdr);break;
       case AT_ENTRY:v=P.entry;break; case AT_BASE:v=ibase;break; case AT_EXECFN:v=(u64)G_execfn;break; }
     *w++=t; *w++=v; }
   *w++=AT_NULL; *w++=0;
+  if(tme){ S4(117,0,0,0,0); u64 ub=1ul<<4, om=0; S4(NR_rt_sigprocmask,1,(i64)&ub,(i64)&om,8);
+    S3(131/*tgkill*/,S0(NR_getpid),S0(178),5/*SIGTRAP: the exec stop the kernel would have sent*/);
+    S4(NR_rt_sigprocmask,2,(i64)&om,0,8); }
   jump_to((u64)nsp,entry);
 }
 __asm__(".text\n.global _start\n_start:\n mov x0, sp\n and sp, x0, #~15\n bl cmain\n");

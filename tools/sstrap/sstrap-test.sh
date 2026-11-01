@@ -14,4 +14,5 @@ echo "== 9 exec cost (300x /bin/true)"
 s=$(date +%s%N); for i in $(seq 300); do /bin/true; done; e=$(date +%s%N); echo "direct: $(( (e-s)/300000 )) us/exec"
 ./sstrap /bin/bash -c 's=$(date +%s%N); for i in $(seq 300); do /bin/true; done; e=$(date +%s%N); echo "sstrap: $(( (e-s)/300000 )) us/exec"'
 echo "== 10 debug trace of hello-static"; SSTRAP_DEBUG=1 ./sstrap ./hello-static 2>&1 | head -40
+echo "== 11 exec debug"; SSTRAP_DEBUG=1 ./sstrap /bin/bash -c "/bin/true; echo rc=\$?" 2>&1 | grep -v "nr="
 echo "# done"

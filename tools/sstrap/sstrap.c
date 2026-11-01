@@ -206,22 +206,36 @@ static i64 emu_rt_sigprocmask(i64 how,const u64*set,u64*old,i64 ssz){
 }
 
 /* execve: re-enter the loader so the new image also gets the handler (filter is inherited) */
-static i64 emu_execve(i64 dfd,const char*path,char*const*argv,char*const*envp,i64 flags){
-  if(!path)return -EFAULT;
+static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags){
+  if(!upath)return -EFAULT;
   if(dfd!=AT_FDCWD||(flags&AT_EMPTY_PATH)){ /* PoC: only plain paths */
-    if(dfd!=AT_FDCWD&&path[0]!='/')return -ENOSYS;
+    if(dfd!=AT_FDCWD&&upath[0]!='/')return -ENOSYS;
   }
-  i64 r=S4(NR_faccessat,AT_FDCWD,path,1/*X_OK*/,0); if(r<0)return r;
+  /* work on private copies: the Sandshell supervisor may rewrite path strings in place,
+     which must never touch the program's own memory */
+  static char path[4096], self[600]; u64 pl=slen(upath); if(pl>=sizeof path)return -36; memcpy(path,upath,pl+1);
+  char pathv[4096]; memcpy(pathv,path,pl+1); /* virtual name for argv */
+  i64 r=S4(NR_faccessat,AT_FDCWD,path,1/*X_OK*/,0);
+  if(G_debug){wr("[sstrap] exec '");wr(pathv);wr("' access=");wrn(r);wr(" now '");wr(path);wr("'\n");}
+  if(r<0)return r;
+  memcpy(path,pathv,pl+1);
   struct kstat st; r=S4(NR_newfstatat,AT_FDCWD,path,&st,0); if(r<0)return r;
   if((st.mode&0170000)!=0100000)return -13; /* EACCES on non-regular */
   u64 argc=0; if(argv)while(argv[argc])argc++;
   u64 need=(argc+4)*sizeof(char*);
   char*stackv[512]; char**nv=stackv; int mapped=0;
   if(argc+4>512){ i64 m=S6(NR_mmap,0,(need+4095)&~4095ul,3,0x22,-1,0); if(m<0)return m; nv=(char**)m; mapped=1; }
-  u64 k=0; nv[k++]=G_self; nv[k++]=(char*)"--sstrap-exec"; nv[k++]=(char*)path;
-  if(argc==0)nv[k++]=(char*)path; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
-  nv[k]=0;
-  r=S3(NR_execve,G_self,nv,envp);
+  /* try: virtual self, then physical self */
+  for(int attempt=0;attempt<2;attempt++){
+    i64 e2=0; const char*sp=G_self; char pb[600];
+    if(attempt==1){ sp=v2p(G_self,pb,sizeof pb,&e2); if(e2||sp==G_self)break; }
+    scpy(self,sp); memcpy(path,pathv,pl+1);
+    u64 k=0; nv[k++]=self; nv[k++]=(char*)"--sstrap-exec"; nv[k++]=path;
+    if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
+    nv[k]=0;
+    r=S3(NR_execve,self,nv,envp);
+    if(G_debug){wr("[sstrap] execve self '");wr(sp);wr("' -> ");wrn(r);wr(" (self now '");wr(self);wr("')\n");}
+  }
   if(mapped)S2(NR_munmap,nv,(need+4095)&~4095ul);
   return r;
 }

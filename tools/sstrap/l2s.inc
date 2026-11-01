@@ -53,8 +53,8 @@ static i64 l2s_xop(i64 nr,const char*p,const char*name,const char*v,i64 n){
 }
 static i64 l2s_cnt(const char*store){ char v[24]; i64 n=S4(NR_getxattr,store,L2S_X,v,sizeof v-1); if(n<=0)return 1;
   i64 x=0; for(i64 i=0;i<n;i++) if(v[i]>='0'&&v[i]<='9') x=x*10+(v[i]-'0'); return x; }
-static void l2s_setcnt(const char*store,i64 x){ char v[24]; int i=23; v[i]=0; if(x<0)x=0; do{v[--i]='0'+x%10;x/=10;}while(x);
-  l2s_xop(NR_setxattr,store,L2S_X,v+i,23-i); }
+static i64 l2s_setcnt(const char*store,i64 x){ char v[24]; int i=23; v[i]=0; if(x<0)x=0; do{v[--i]='0'+x%10;x/=10;}while(x);
+  return l2s_xop(NR_setxattr,store,L2S_X,v+i,23-i); }
 /* names of a store: xattr user.sandshell.l2sn = NUL-separated physical paths (best effort) */
 #define L2S_N "user.sandshell.l2sn"
 static i64 l2s_names(const char*store,char*buf){ i64 n=S4(NR_getxattr,store,L2S_N,buf,PB-1); return n<0?0:n; }
@@ -99,7 +99,9 @@ static i64 emu_link(i64 odfd,const char*opath,i64 ndfd,const char*npath){
     l2s_join(store,od,nm);
     if((r=S4(NR_renameat,AT_FDCWD,op,AT_FDCWD,store))<0)goto out;
     if((r=S3(NR_symlinkat,nm,AT_FDCWD,op))<0){ S4(NR_renameat,AT_FDCWD,store,AT_FDCWD,op); goto out; }
-    l2s_setcnt(store,1); made=1; l2s_setnames(store,0,0); l2s_addname(store,op,t);
+    if(l2s_setcnt(store,1)<0){ /* no user xattrs here: no safe emulation, keep the kernel's answer */
+      S3(NR_unlinkat,AT_FDCWD,op,0); S4(NR_renameat,AT_FDCWD,store,AT_FDCWD,op); r=-EACCES; goto out; }
+    made=1; l2s_setnames(store,0,0); l2s_addname(store,op,t);
   }
   l2s_rel(nd,store,rel);
   if((r=S3(NR_symlinkat,rel,AT_FDCWD,np))<0){

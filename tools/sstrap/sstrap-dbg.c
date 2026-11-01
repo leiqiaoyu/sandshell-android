@@ -83,6 +83,7 @@ static __attribute__((noreturn)) void die(const char*m,i64 e){wr("sstrap: ");wr(
 static char G_prefix[512];   /* physical rootfs, "" = no translation */
 static u64  G_plen;
 static char G_self[512];     /* our own path as the program namespace sees it */
+static char G_execfn[512];   /* path as exec'd (AT_EXECFN) */
 static char G_exe[512];      /* virtual path of the loaded program (for /proc/self/exe) */
 static int  G_debug;
 static const char*G_comm_src="";
@@ -143,17 +144,35 @@ static int special(const char*p){
   for(int i=0;SP[i];i++){u64 n=slen(SP[i]); if(spre(p,SP[i])&&(p[n]==0||p[n]=='/'||SP[i][n-1]=='3'))return 1;}
   return 0;
 }
+/* scratch pool: path buffers off the signal stack. Programs may run us on a small sigaltstack
+   (Rust: 16 KB incl. the kernel frame), so the handler keeps its own frame tiny. */
+#define POOLN 48
+static char POOL[POOLN][8192] __attribute__((aligned(64)));
+static int POOLU[POOLN];
+static char*pool_get(void){
+  for(int i=0;i<POOLN;i++) if(!__atomic_exchange_n(&POOLU[i],1,__ATOMIC_ACQUIRE)) return POOL[i];
+  i64 m=sc6(NR_mmap,0,8192,3,0x22,-1,0); return m<0?0:(char*)m;
+}
+static void pool_put(char*p){
+  if(p>=POOL[0]&&p<POOL[0]+sizeof POOL){ __atomic_store_n(&POOLU[(p-POOL[0])/8192],0,__ATOMIC_RELEASE); }
+  else if(p) sc6(NR_munmap,(i64)p,8192,0,0,0,0);
+}
 struct kstat;
 static void fixids(void*stp);
 /* path syscall with (dfd,path) at args 0/1: fast direct, else / on failure via supervisor */
+static i64 pathcall_(i64 nr,i64 dfd,const char*path,i64 c,i64 d,i64 e,int fixst,void*st,char*b);
 static i64 pathcall(i64 nr,i64 dfd,const char*path,i64 c,i64 d,i64 e,int fixst,void*st){
-  char b[4096]; i64 err=0; const char*p=path; int slow=0;
+  i64 err=0; const char*p=path; int slow=0;
   if(!path)return -EFAULT;
-  if(path[0]=='/'){ if(special(path))slow=1; else { p=v2p(path,b,sizeof b,&err); if(err)return err; } }
+  char*b=pool_get(); if(!b)return -12; i64 r=pathcall_(nr,dfd,path,c,d,e,fixst,st,b); pool_put(b); return r; (void)err;(void)p;(void)slow;
+}
+static i64 pathcall_(i64 nr,i64 dfd,const char*path,i64 c,i64 d,i64 e,int fixst,void*st,char*b){
+  i64 err=0; const char*p=path; int slow=0;
+  if(path[0]=='/'){ if(special(path))slow=1; else { p=v2p(path,b,4096,&err); if(err)return err; } }
   i64 r=-ENOENT;
   if(!slow){ r=sc6(nr,dfd,(i64)p,c,d,e,0); if(r>=0){ if(fixst)fixids(st); return r; }
     if(r!=-ENOENT&&r!=-EACCES&&r!=-EPERM&&r!=-ENOTDIR)return r; if(!G_slow)return r; }
-  u64 n=slen(path); if(n>=sizeof b)return -ENAMETOOLONG; memcpy(b,path,n+1); /* private copy: supervisor rewrites in place */
+  u64 n=slen(path); if(n>=4096)return -ENAMETOOLONG; memcpy(b,path,n+1); /* private copy: supervisor rewrites in place */
   r=SL(nr,dfd,(i64)b,c,d,e);
   return r;
 }
@@ -286,7 +305,10 @@ static i64 emu_rt_sigprocmask(i64 how,const u64*set,u64*old,i64 ssz,u64*ucmask){
 /* Sandshell's libc shim rewrites execve(prog) as execve(<apk>/libdebian-ld.so --library-path L <physical prog> args).
    We load ELFs ourselves, so unwrap it (ps / cmdline / argv[0] then look like plain Linux).
    Returns the argv index of the real program (0 = not wrapped) and the argv[0] to use. */
-static i64 ldwrap(const char*path,char*const*av,i64 ac,const char**a0){
+static char LDVP[4096];
+static i64 ldwrap_(const char*path,char*const*av,i64 ac,const char**a0,char*vp);
+static i64 ldwrap(const char*path,char*const*av,i64 ac,const char**a0){ return ldwrap_(path,av,ac,a0,LDVP); }
+static i64 ldwrap_(const char*path,char*const*av,i64 ac,const char**a0,char*vp){
   const char*b=path; for(const char*c=path;*c;c++) if(*c=='/') b=c+1;
   if(!seq(b,"libdebian-ld.so")||ac<2)return 0;
   i64 i=1; *a0=0;
@@ -296,22 +318,48 @@ static i64 ldwrap(const char*path,char*const*av,i64 ac,const char**a0){
     if((seq(av[i],"--library-path")||seq(av[i],"--preload")||seq(av[i],"--audit"))&&i+1<ac){i+=2;continue;}
     i++; }
   if(i>=ac)return 0;
-  if(!*a0){ static char vp[4096]; u64 l=slen(av[i]); if(l<sizeof vp){ memcpy(vp,av[i],l+1); i64 nl=p2v(vp,l); vp[nl]=0; *a0=vp; } else *a0=av[i]; }
+  if(!*a0){ u64 l=slen(av[i]); if(l<4096){ memcpy(vp,av[i],l+1); i64 nl=p2v(vp,l); vp[nl]=0; *a0=vp; } else *a0=av[i]; }
   return i;
 }
 
+/* execve scratch: vfork/posix_spawn children share our memory and may exec concurrently, and they
+   run the handler on the parent's (small) sigaltstack. So each exec gets its own slot, off-stack.
+   A successful exec in a vfork child never releases its slot; reclaim those (owner tid no longer in
+   our thread group, held > 1 s) when the pool runs dry. */
+#define XPN 32
+#define XPS 32768
+static char XP[XPN][XPS] __attribute__((aligned(64)));
+static int XPU[XPN]; static i64 XPT[XPN], XPW[XPN];
+static i64 now_s(void){ i64 ts[2]={0,0}; S2(113/*clock_gettime*/,1/*MONOTONIC*/,(i64)ts); return ts[0]; }
+static char*xp_get(int*mapped){
+  *mapped=0; i64 tid=S0(178);
+  for(int pass=0;pass<2;pass++){
+    for(int i=0;i<XPN;i++) if(!__atomic_exchange_n(&XPU[i],1,__ATOMIC_ACQUIRE)){ XPT[i]=tid; XPW[i]=now_s(); return XP[i]; }
+    i64 pid=S0(NR_getpid), t=now_s();
+    for(int i=0;i<XPN;i++) if(XPT[i]&&t-XPW[i]>30&&S3(131/*tgkill*/,pid,XPT[i],0)==-3){ XPT[i]=0; __atomic_store_n(&XPU[i],0,__ATOMIC_RELEASE); }
+  }
+  i64 m=S6(NR_mmap,0,XPS,3,0x22,-1,0); if(m<0)return 0; *mapped=1; return (char*)m;
+}
+static void xp_put(char*p,int mapped){
+  if(mapped){ S2(NR_munmap,(i64)p,XPS); return; }
+  int i=(p-XP[0])/XPS; XPT[i]=0; __atomic_store_n(&XPU[i],0,__ATOMIC_RELEASE);
+}
+static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,char*X);
 static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags){
+  int mp; char*X=xp_get(&mp); if(!X)return -12; i64 r=emu_execve_(dfd,upath,argv,envp,flags,X); xp_put(X,mp); return r;
+}
+static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,i64 flags,char*X){
   if(!upath)return -EFAULT;
   const char*a0ov=0;
-  { i64 ac=0; if(argv)while(argv[ac])ac++; i64 i=argv?ldwrap(upath,argv,ac,&a0ov):0;
+  { i64 ac=0; if(argv)while(argv[ac])ac++; i64 i=argv?ldwrap_(upath,argv,ac,&a0ov,X+13700):0;
     if(i>0){ upath=argv[i]; argv=argv+i; } else a0ov=0; }
   if(dfd!=AT_FDCWD||(flags&AT_EMPTY_PATH)){ /* PoC: only plain paths */
     if(dfd!=AT_FDCWD&&upath[0]!='/')return -ENOSYS;
   }
   /* work on private copies: the Sandshell supervisor may rewrite path strings in place,
      which must never touch the program's own memory */
-  static char path[4096], self[600]; u64 pl=slen(upath); if(pl>=sizeof path)return -36; memcpy(path,upath,pl+1);
-  char pathv[4096]; memcpy(pathv,path,pl+1); /* virtual name for argv */
+  char*path=X,*self=X+4096; u64 pl=slen(upath); if(pl>=4096)return -36; memcpy(path,upath,pl+1);
+  char*pathv=X+4800; memcpy(pathv,path,pl+1); /* virtual name for argv */
   i64 r=x_faccessat(AT_FDCWD,path,1/*X_OK*/,0);
   if(G_debug){wr("[sstrap] exec '");wr(pathv);wr("' access=");wrn(r);wr(" now '");wr(path);wr("'\n");}
   if(r<0)return r;
@@ -321,18 +369,18 @@ static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i
   u64 argc=0; if(argv)while(argv[argc])argc++;
   u64 envc=0; if(envp)while(envp[envc])envc++;
   u64 need=(argc+envc+8)*sizeof(char*);
-  char*stackv[1024]; char**nv=stackv; int mapped=0;
-  if(argc+envc+8>1024){ i64 m=S6(NR_mmap,0,(need+4095)&~4095ul,3,0x22,-1,0); if(m<0)return m; nv=(char**)m; mapped=1; }
+  char**nv=(char**)(X+18432); int mapped=0;
+  if(argc+envc+8>(XPS-18432)/8){ i64 m=S6(NR_mmap,0,(need+4095)&~4095ul,3,0x22,-1,0); if(m<0)return m; nv=(char**)m; mapped=1; }
   /* try: virtual self, then physical self */
   for(int attempt=0;attempt<2;attempt++){
     /* physical self first: inside Sandshell the kernel needs the real path for execve */
-    i64 e2=0; const char*sp=G_self; char pb[600];
-    if(attempt==0){ sp=v2p(G_self,pb,sizeof pb,&e2); if(e2)sp=G_self; }
+    i64 e2=0; const char*sp=G_self; char*pb=X+17800;
+    if(attempt==0){ sp=v2p(G_self,pb,600,&e2); if(e2)sp=G_self; }
     else { if(sp==G_self&&!G_plen)break; }
     scpy(self,sp); memcpy(path,pathv,pl+1);
     /* argv stays exactly the program's (so /proc/PID/cmdline and ps NAME show the program);
        the target path travels in SSTRAP_X=, which the loader strips again */
-    static char xenv[4200], senv[600];
+    char*xenv=X+8900,*senv=X+13100;
     scpy(xenv,"SSTRAP_X="); scpy(xenv+9,path); scpy(senv,"SSTRAP_SELF="); scpy(senv+12,G_self);
     u64 k=0;
     if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
@@ -354,11 +402,12 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   (void)sig;
   u64*R=uc->regs; i64 nr=si->syscall; i64 ret=-ENOSYS;
   i64 a0=R[0],a1=R[1],a2=R[2],a3=R[3],a4=R[4];
-  char b1[4096]; i64 e; const char*p;
+  char*b1=pool_get(); if(!b1){ R[0]=(u64)-12; return; } char*b2=b1+4096; i64 e; const char*p;
   if(G_debug>1){char t[160];int k=0;const char*h="[> ";while(*h)t[k++]=*h++; i64 tid=S1(178,0); char d[24];int m=0; do{d[m++]='0'+tid%10;tid/=10;}while(tid); while(m)t[k++]=d[--m]; t[k++]=' '; i64 x=nr; m=0; do{d[m++]='0'+x%10;x/=10;}while(x); while(m)t[k++]=d[--m]; t[k++]='\n'; S3(NR_write,2,(i64)t,k);}
   switch(nr){
   /* ---- Android-killed syscalls ---- */
-  case NR_rseq: case NR_set_robust_list: case NR_io_uring_setup: case NR_futex_waitv: ret=-ENOSYS; break;
+  case NR_rseq: case NR_set_robust_list: case NR_io_uring_setup: case NR_futex_waitv:
+  case 435/*clone3: Android denies it; glibc's CLONE_CLEAR_SIGHAND would drop our handler*/: ret=-ENOSYS; break;
   case NR_accept: ret=S4(NR_accept4,a0,a1,a2,0); break;
   case 269/*sendmmsg*/: { u8*m=(u8*)a1; i64 i; ret=0;
     for(i=0;i<a2;i++){ i64 r=S3(211/*sendmsg*/,a0,(i64)(m+64*i),a3); if(r<0){ ret= i? i : r; break; } *(u32*)(m+64*i+56)=(u32)r; ret=i+1; }
@@ -400,20 +449,20 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
     else ret=SL(NR_openat,a0,a1,how[0],how[1],0); break; }
   case NR_memfd_create: ret=emu_memfd((const char*)a0,a1); break;
   /* ---- unmediated path syscalls ---- */
-  case NR_chdir: p=v2p((const char*)a0,b1,sizeof b1,&e); ret=e?e:S1(NR_chdir,p); break;
-  case NR_truncate: p=v2p((const char*)a0,b1,sizeof b1,&e); ret=e?e:S2(NR_truncate,p,a1); break;
+  case NR_chdir: p=v2p((const char*)a0,b1,4096,&e); ret=e?e:S1(NR_chdir,p); break;
+  case NR_truncate: p=v2p((const char*)a0,b1,4096,&e); ret=e?e:S2(NR_truncate,p,a1); break;
   case NR_getxattr: case NR_lgetxattr: case NR_setxattr: case NR_lsetxattr:
   case NR_listxattr: case NR_llistxattr: case NR_removexattr: case NR_lremovexattr:
-    p=v2p((const char*)a0,b1,sizeof b1,&e); ret=e?e:S5(nr,p,a1,a2,a3,a4); break;
-  case NR_inotify_add_watch: p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S3(nr,a0,p,a2); break;
-  case NR_mknodat: if(a0==AT_FDCWD){p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(nr,a0,p,a2,a3);} else ret=S4(nr,a0,a1,a2,a3); break;
+    p=v2p((const char*)a0,b1,4096,&e); ret=e?e:S5(nr,p,a1,a2,a3,a4); break;
+  case NR_inotify_add_watch: p=v2p((const char*)a1,b1,4096,&e); ret=e?e:S3(nr,a0,p,a2); break;
+  case NR_mknodat: if(a0==AT_FDCWD){p=v2p((const char*)a1,b1,4096,&e); ret=e?e:S4(nr,a0,p,a2,a3);} else ret=S4(nr,a0,a1,a2,a3); break;
   case NR_symlinkat: { /* absolute target -> physical (kernel resolves it); readlinkat maps it back */
-    char b2[4096]; const char*t=(const char*)a0; i64 e2=0; e=0;
-    if(t&&t[0]=='/')t=v2p(t,b2,sizeof b2,&e2);
-    p=(const char*)a2; if(a1==AT_FDCWD)p=v2p(p,b1,sizeof b1,&e);
+    const char*t=(const char*)a0; i64 e2=0; e=0;
+    if(t&&t[0]=='/')t=v2p(t,b2,4096,&e2);
+    p=(const char*)a2; if(a1==AT_FDCWD)p=v2p(p,b1,4096,&e);
     ret=e?e:e2?e2:S3(nr,t,a1,p); break; }
-  case NR_linkat: { char b2[4096]; const char*p1=(const char*)a1,*p2=(const char*)a3; i64 e2=0; e=0;
-    if(a0==AT_FDCWD)p1=v2p(p1,b1,sizeof b1,&e); if(a2==AT_FDCWD)p2=v2p(p2,b2,sizeof b2,&e2);
+  case NR_linkat: { const char*p1=(const char*)a1,*p2=(const char*)a3; i64 e2=0; e=0;
+    if(a0==AT_FDCWD)p1=v2p(p1,b1,4096,&e); if(a2==AT_FDCWD)p2=v2p(p2,b2,4096,&e2);
     ret=e?e:e2?e2:S5(nr,a0,p1,a2,p2,a4);
     /* Android forbids hard links; glibc sem_open does link(tmp,sem.NAME) then unlink(tmp) in /dev/shm:
        a no-replace rename keeps the same inode (shared mapping) and EEXIST semantics */
@@ -428,32 +477,33 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_faccessat: ret=x_faccessat(a0,(const char*)a1,a2,a3); break;
   case NR_openat:
     if(!(a2&(0x3|0x40|0x200|0x200000|0x400000))) ret=x_openat(a0,(const char*)a1,a2,a3);
-    else if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(NR_openat,a0,p,a2,a3); }
+    else if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,4096,&e); ret=e?e:S4(NR_openat,a0,p,a2,a3); }
     else ret=SL(NR_openat,a0,a1,a2,a3,0);   /* writes/creates: supervisor policy */
     if(ret==-40&&(a2&0x8000)){ /* O_NOFOLLOW on an emulated hard link: open the file itself */
       char*m=l2s_mem(); if(m&&l2s_store_of(a0,(const char*)a1,m+4*PB,m)) ret=S4(NR_openat,AT_FDCWD,m+4*PB,a2&~0x8000l,a3); l2s_free(m); }
     break;
   case NR_unlinkat:
-    if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S3(NR_unlinkat,a0,p,a2); }
+    if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,4096,&e); ret=e?e:S3(NR_unlinkat,a0,p,a2); }
     else if(a2&0x200) ret=SL(NR_unlinkat,a0,a1,a2,0,0);
     else { char*m=l2s_mem(); int l=m&&l2s_store_of2(a0,(const char*)a1,m+4*PB,m,m+5*PB);
       ret=SL(NR_unlinkat,a0,a1,a2,0,0); if(ret==0&&l) l2s_unlinked(m+4*PB,m+5*PB); l2s_free(m); }
     break;
   case 88/*utimensat*/:
     if(!a1) ret=S4(88,a0,0,a2,a3);              /* futimens(fd): the supervisor rejects a NULL path */
-    else { p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(88,a0,p,a2,a3);
+    else { p=v2p((const char*)a1,b1,4096,&e); ret=e?e:S4(88,a0,p,a2,a3);
       if(ret==-ENOENT||ret==-EACCES||ret==-EPERM) ret=SL(88,a0,a1,a2,a3,0); }
     break;
   case NR_getuid: case 175: case NR_getgid: case 177: ret=0; break;
   case 158/*getgroups*/: if(a0==0)ret=1; else if(a0<0)ret=-EINVAL; else { ((u32*)a1)[0]=0; ret=1; } break;
   case NR_readlinkat: ret=emu_readlinkat(a0,(const char*)a1,(char*)a2,a3); break;
-  case NR_execve: ret=emu_execve(AT_FDCWD,(const char*)a0,(char*const*)a1,(char*const*)a2,0); break;
-  case NR_execveat: ret=emu_execve(a0,(const char*)a1,(char*const*)a2,(char*const*)a3,a4); break;
+  case NR_execve: pool_put(b1); b1=0; ret=emu_execve(AT_FDCWD,(const char*)a0,(char*const*)a1,(char*const*)a2,0); break;
+  case NR_execveat: pool_put(b1); b1=0; ret=emu_execve(a0,(const char*)a1,(char*const*)a2,(char*const*)a3,a4); break;
   /* ---- keep SIGSYS deliverable ---- */
   case NR_rt_sigaction: ret=emu_rt_sigaction(a0,(const struct ksigaction*)a1,(struct ksigaction*)a2,a3); break;
   case NR_rt_sigprocmask: ret=emu_rt_sigprocmask(a0,(const u64*)a1,(u64*)a2,a3,(u64*)&uc->uc_sigmask); break;
   default: ret=-ENOSYS; break;
   }
+  pool_put(b1);
   dbg(nr,ret);
   R[0]=(u64)ret;
   uc->uc_sigmask&=~SIGSYS_BIT;
@@ -484,7 +534,7 @@ static const int TRAPPED[]={NR_openat,NR_unlinkat,88,158,NR_fstat,NR_newfstatat,
   NR_getcwd,NR_readlinkat,NR_execve,NR_execveat,NR_rt_sigaction,NR_rt_sigprocmask,
   /* also catch Android-killed ones ourselves so behaviour is identical everywhere */
   NR_rseq,NR_set_robust_list,NR_accept,NR_setuid,NR_setgid,NR_setreuid,NR_setregid,NR_setresuid,NR_setresgid,
-  NR_setgroups,NR_setfsuid,NR_setfsgid,NR_mount,NR_shmget,NR_io_uring_setup,NR_futex_waitv,-1};
+  NR_setgroups,NR_setfsuid,NR_setfsgid,NR_mount,NR_shmget,NR_io_uring_setup,NR_futex_waitv,435,-1};
 
 static void install_filter(void){
   static struct sock_filter f[128]; int n=0;
@@ -521,7 +571,10 @@ static void install_filter(void){
 
 static void install_handler(void){
   struct ksigaction a; memset(&a,0,sizeof a);
-  a.handler=(u64)handler; a.flags=SA_SIGINFO|SA_RESTORER|SA_ONSTACK|SA_NODEFER; a.restorer=(u64)sstrap_restorer; a.mask=0;
+  a.handler=(u64)handler; a.flags=SA_SIGINFO|SA_RESTORER|SA_ONSTACK|SA_NODEFER; a.restorer=(u64)sstrap_restorer;
+  /* block every other signal while we emulate: our C code reuses x28 etc., and a Go/other handler
+     interrupting us would read garbage as its g (Go keeps g in x28). Delivered right after sigreturn. */
+  a.mask=~SIGSYS_BIT;
   i64 r=S4(NR_rt_sigaction,SIGSYS,&a,0,8); if(r<0)die("sigaction",r);
   u64 s=SIGSYS_BIT; S4(NR_rt_sigprocmask,1,&s,0,8);
 }
@@ -669,6 +722,13 @@ void __attribute__((noreturn)) cmain(u64*sp){
   /* exe name shown via /proc/self/exe */
   { scpy(G_exe,path); if(path[0]!='/'){ char cwd[512]; i64 n=emu_getcwd(cwd,sizeof cwd);
       if(n>0&&slen(cwd)+slen(path)+2<sizeof G_exe){ scpy(G_exe,cwd); u64 l=slen(G_exe); G_exe[l]='/'; scpy(G_exe+l+1,path[0]=='.'&&path[1]=='/'?path+2:path);} } }
+  /* the kernel's /proc/self/exe is the symlink-resolved file: ld.so derives $ORIGIN from it
+     (java's RPATH $ORIGIN/../lib via /usr/bin/java -> /etc/alternatives -> /usr/lib/jvm/...) */
+  scpy(G_execfn,G_exe);
+  { i64 fd=x_openat(AT_FDCWD,path,02000000,0);
+    if(fd>=0){ char t[600]; char pp[40]="/proc/self/fd/"; char d[12]; int i=11; d[i]=0; u64 u=fd; do{d[--i]='0'+u%10;u/=10;}while(u); scpy(pp+14,d+i);
+      i64 n=S4(NR_readlinkat,AT_FDCWD,pp,t,sizeof t-1); S1(NR_close,fd);
+      if(n>(i64)G_plen&&n<(i64)sizeof G_exe){ i64 m=p2v(t,n); if(m!=n||!G_plen){ memcpy(G_exe,t,m); G_exe[m]=0; } } } }
 
   /* comm = basename of what was run (as the kernel would show it), not "sstrap" */
   { const char*b=G_comm_src; for(const char*c=b;*c;c++) if(*c=='/') b=c+1; char nm[16]; u64 k=0; while(b[k]&&k<15){nm[k]=b[k];k++;} nm[k]=0;
@@ -692,7 +752,7 @@ void __attribute__((noreturn)) cmain(u64*sp){
   for(i64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X="))*w++=(u64)envp[i]; *w++=0;
   for(u64 i=0;i<naux;i++){ u64 t=auxv[i*2],v=auxv[i*2+1];
     switch(t){ case AT_PHDR:v=P.phdr;break; case AT_PHNUM:v=P.phnum;break; case AT_PHENT:v=sizeof(Phdr);break;
-      case AT_ENTRY:v=P.entry;break; case AT_BASE:v=ibase;break; case AT_EXECFN:v=(u64)G_exe;break; }
+      case AT_ENTRY:v=P.entry;break; case AT_BASE:v=ibase;break; case AT_EXECFN:v=(u64)G_execfn;break; }
     *w++=t; *w++=v; }
   *w++=AT_NULL; *w++=0;
   jump_to((u64)nsp,entry);

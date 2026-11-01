@@ -330,7 +330,10 @@ static void install_filter(void){
   f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_TRAP);
   struct sock_fprog prog={(u16)n,f};
   i64 r=S5(NR_prctl,38/*PR_SET_NO_NEW_PRIVS*/,1,0,0,0); if(r<0)die("no_new_privs",r);
-  r=S3(NR_seccomp,1/*SET_MODE_FILTER*/,0,&prog); if(r<0)die("seccomp filter",r);
+  r=S3(NR_seccomp,1/*SET_MODE_FILTER*/,0,&prog);
+  if(r<0){ i64 r2=S5(NR_prctl,22/*PR_SET_SECCOMP*/,2/*MODE_FILTER*/,(i64)&prog,0,0);
+    if(G_debug){wr("[sstrap] seccomp() ");wrn(r);wr(", prctl fallback ");wrn(r2);wr("\n");}
+    if(r2<0)die("seccomp filter (seccomp+prctl)",r2); }
 }
 
 static void install_handler(void){

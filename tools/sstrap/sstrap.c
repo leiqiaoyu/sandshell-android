@@ -282,9 +282,10 @@ static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i
   struct kstat st; r=x_fstatat(AT_FDCWD,path,&st,0); if(r<0)return r;
   if((st.mode&0170000)!=0100000)return -13; /* EACCES on non-regular */
   u64 argc=0; if(argv)while(argv[argc])argc++;
-  u64 need=(argc+4)*sizeof(char*);
-  char*stackv[512]; char**nv=stackv; int mapped=0;
-  if(argc+4>512){ i64 m=S6(NR_mmap,0,(need+4095)&~4095ul,3,0x22,-1,0); if(m<0)return m; nv=(char**)m; mapped=1; }
+  u64 envc=0; if(envp)while(envp[envc])envc++;
+  u64 need=(argc+envc+8)*sizeof(char*);
+  char*stackv[1024]; char**nv=stackv; int mapped=0;
+  if(argc+envc+8>1024){ i64 m=S6(NR_mmap,0,(need+4095)&~4095ul,3,0x22,-1,0); if(m<0)return m; nv=(char**)m; mapped=1; }
   /* try: virtual self, then physical self */
   for(int attempt=0;attempt<2;attempt++){
     /* physical self first: inside Sandshell the kernel needs the real path for execve */
@@ -292,10 +293,16 @@ static i64 emu_execve(i64 dfd,const char*upath,char*const*argv,char*const*envp,i
     if(attempt==0){ sp=v2p(G_self,pb,sizeof pb,&e2); if(e2)sp=G_self; }
     else { if(sp==G_self&&!G_plen)break; }
     scpy(self,sp); memcpy(path,pathv,pl+1);
-    u64 k=0; nv[k++]=self; nv[k++]=(char*)"--sstrap-exec"; nv[k++]=path;
+    /* argv stays exactly the program's (so /proc/PID/cmdline and ps NAME show the program);
+       the target path travels in SSTRAP_X=, which the loader strips again */
+    static char xenv[4200], senv[600];
+    scpy(xenv,"SSTRAP_X="); scpy(xenv+9,path); scpy(senv,"SSTRAP_SELF="); scpy(senv+12,G_self);
+    u64 k=0;
     if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
-    nv[k]=0;
-    r=S3(NR_execve,self,nv,envp);
+    nv[k++]=0; char**ne=nv+k;
+    for(u64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X=")&&!spre(envp[i],"SSTRAP_SELF="))nv[k++]=envp[i];
+    nv[k++]=senv; nv[k++]=xenv; nv[k]=0;
+    r=S3(NR_execve,self,nv,ne);
     if(G_debug){wr("[sstrap] execve self '");wr(sp);wr("' -> ");wrn(r);wr(" (self now '");wr(self);wr("')\n");}
   }
   if(mapped)S2(NR_munmap,nv,(need+4095)&~4095ul);
@@ -536,8 +543,9 @@ void __attribute__((noreturn)) cmain(u64*sp){
   i64 argc=(i64)sp[0]; char**argv=(char**)(sp+1); char**envp=argv+argc+1;
   char**ep=envp; while(*ep)ep++; u64*auxv=(u64*)(ep+1);
   for(char**e=envp;*e;e++){ if(spre(*e,"SSTRAP_DEBUG=1"))G_debug=1; }
-  int reexec = argc>=3 && seq(argv[1],"--sstrap-exec");
-  if(argc<2){ wr("usage: sstrap PROGRAM [ARGS...]\n"); S1(NR_exit_group,2); }
+  const char*xpath=0; for(char**e=envp;*e;e++) if(spre(*e,"SSTRAP_X="))xpath=*e+9;
+  int reexec = xpath!=0;
+  if(argc<2&&!reexec){ wr("usage: sstrap PROGRAM [ARGS...]\n"); S1(NR_exit_group,2); }
 
   init_slow();
   /* prefix: SSTRAP_ROOT or detect via readlink of an fd for "/" (supervisor-translated open) */
@@ -563,8 +571,18 @@ void __attribute__((noreturn)) cmain(u64*sp){
     if(G_debug){ char x[512]; i64 n=S4(NR_readlinkat,AT_FDCWD,"/proc/self/exe",x,sizeof x-1); if(n<0)n=0; x[n]=0;
       wr("[sstrap] self='");wr(G_self);wr("' /proc/self/exe='");wr(x);wr("'\n"); } }
 
+  if(!reexec){
+    /* one-time: install the filter, then re-exec ourselves the normal way so even the first program
+       gets its own argv in /proc/PID/cmdline (ps shows "bash", not "sstrap bash") */
+    if(G_plen){ char d[600]; memcpy(d,G_prefix,G_plen); scpy(d+G_plen,"/run"); S3(NR_mkdirat,AT_FDCWD,d,0755);
+      scpy(d+G_plen,"/run/shm"); if(S3(NR_mkdirat,AT_FDCWD,d,01777)==0) S3(NR_fchmodat,AT_FDCWD,d,01777); }
+    char pb0[4096]; const char*p0=find_prog(argv[1],envp,pb0);
+    install_filter();
+    i64 r=emu_execve(AT_FDCWD,p0,argv+1,envp,0);
+    die("exec program",r);
+  }
   const char*path; char**pargv; char pbuf[4096];
-  if(reexec){ path=argv[2]; pargv=argv+3; }
+  if(reexec){ path=xpath; pargv=argv; }
   else { path=find_prog(argv[1],envp,pbuf); pargv=argv+1; }
   i64 pargc=0; while(pargv[pargc])pargc++;
   G_comm_src=path;
@@ -613,7 +631,7 @@ void __attribute__((noreturn)) cmain(u64*sp){
   u64 words=1+pargc+1+envc+1+(naux+1)*2;
   u64*nsp=(u64*)(((u64)m+ssz-256-words*8)&~15ul);
   u64*w=nsp; *w++=pargc; for(i64 i=0;i<pargc;i++)*w++=(u64)pargv[i]; *w++=0;
-  for(i64 i=0;i<envc;i++)*w++=(u64)envp[i]; *w++=0;
+  for(i64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X="))*w++=(u64)envp[i]; *w++=0;
   for(u64 i=0;i<naux;i++){ u64 t=auxv[i*2],v=auxv[i*2+1];
     switch(t){ case AT_PHDR:v=P.phdr;break; case AT_PHNUM:v=P.phnum;break; case AT_PHENT:v=sizeof(Phdr);break;
       case AT_ENTRY:v=P.entry;break; case AT_BASE:v=ibase;break; case AT_EXECFN:v=(u64)G_exe;break; }

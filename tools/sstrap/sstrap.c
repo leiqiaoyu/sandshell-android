@@ -344,6 +344,7 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_faccessat: ret=x_faccessat(a0,(const char*)a1,a2,a3); break;
   case NR_openat: ret=x_openat(a0,(const char*)a1,a2,a3); break;
   case NR_getuid: case 175: case NR_getgid: case 177: ret=0; break;
+  case 158/*getgroups*/: if(a0==0)ret=1; else if(a0<0)ret=-EINVAL; else { ((u32*)a1)[0]=0; ret=1; } break;
   case NR_readlinkat: ret=emu_readlinkat(a0,(const char*)a1,(char*)a2,a3); break;
   case NR_execve: ret=emu_execve(AT_FDCWD,(const char*)a0,(char*const*)a1,(char*const*)a2,0); break;
   case NR_execveat: ret=emu_execve(a0,(const char*)a1,(char*const*)a2,(char*const*)a3,a4); break;
@@ -376,7 +377,7 @@ struct sock_fprog { u16 len; struct sock_filter*filter; };
 #define SECCOMP_RET_TRAP 0x00030000u
 #define AUDIT_ARCH_AARCH64 0xc00000b7u
 
-static const int TRAPPED[]={NR_fstat,NR_newfstatat,NR_faccessat,NR_getuid,175,NR_getgid,177,NR_statx,NR_faccessat2,NR_renameat2,NR_fchmodat2,NR_openat2,NR_memfd_create,
+static const int TRAPPED[]={158,NR_fstat,NR_newfstatat,NR_faccessat,NR_getuid,175,NR_getgid,177,NR_statx,NR_faccessat2,NR_renameat2,NR_fchmodat2,NR_openat2,NR_memfd_create,
   NR_chdir,NR_truncate,NR_getxattr,NR_lgetxattr,NR_setxattr,NR_lsetxattr,NR_listxattr,NR_llistxattr,
   NR_removexattr,NR_lremovexattr,NR_inotify_add_watch,NR_mknodat,NR_symlinkat,NR_linkat,NR_bind,NR_connect,
   NR_getcwd,NR_readlinkat,NR_execve,NR_execveat,NR_rt_sigaction,NR_rt_sigprocmask,

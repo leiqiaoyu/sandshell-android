@@ -375,7 +375,8 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_faccessat2: ret=x_faccessat(a0,(const char*)a1,a2,0); break;
   case NR_renameat: a4=0; /* fallthrough: same bookkeeping */
   case NR_renameat2: { char*m=l2s_mem(); char*ss=m?m+8*PB:0,*ds=m?m+9*PB:0;
-    int sl=m&&l2s_store_of(a0,(const char*)a1,ss,m), dl=m&&l2s_store_of(a2,(const char*)a3,ds,m);
+    char*sp_=m?m+12*PB:0,*dp_=m?m+13*PB:0;
+    int sl=m&&l2s_store_of2(a0,(const char*)a1,ss,m,sp_), dl=m&&l2s_store_of2(a2,(const char*)a3,ds,m,dp_);
     if(sl&&dl&&seq(ss,ds)&&!(a4&1)){ ret=0; l2s_free(m); break; }   /* both names of one file: no-op */
     if(!m){ ret=-12; break; }
     if(a4&~1ul) ret=-EINVAL;
@@ -387,7 +388,7 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
         char*c1=m+10*PB,*c2=m+11*PB; u64 l1=slen((const char*)a1),l2=slen((const char*)a3);
         if(l1>=PB||l2>=PB) ret=-ENAMETOOLONG;
         else { memcpy(c1,(const char*)a1,l1+1); memcpy(c2,(const char*)a3,l2+1); ret=SL(NR_renameat,a0,(i64)c1,a2,(i64)c2,0); } } }
-    if(ret==0){ if(dl) l2s_unlinked(ds); if(sl) l2s_repoint(a2,(const char*)a3,ss,m); }
+    if(ret==0){ if(sl) l2s_repoint(a2,(const char*)a3,ss,m,sp_); if(dl) l2s_unlinked(ds,dp_); }
     l2s_free(m); break; }
   case NR_fchmodat2:
     if(a3==0)ret=pathcall(NR_fchmodat,a0,(const char*)a1,a2,0,0,0,0);
@@ -435,8 +436,8 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_unlinkat:
     if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S3(NR_unlinkat,a0,p,a2); }
     else if(a2&0x200) ret=SL(NR_unlinkat,a0,a1,a2,0,0);
-    else { char*m=l2s_mem(); int l=m&&l2s_store_of(a0,(const char*)a1,m+4*PB,m);
-      ret=SL(NR_unlinkat,a0,a1,a2,0,0); if(ret==0&&l) l2s_unlinked(m+4*PB); l2s_free(m); }
+    else { char*m=l2s_mem(); int l=m&&l2s_store_of2(a0,(const char*)a1,m+4*PB,m,m+5*PB);
+      ret=SL(NR_unlinkat,a0,a1,a2,0,0); if(ret==0&&l) l2s_unlinked(m+4*PB,m+5*PB); l2s_free(m); }
     break;
   case 88/*utimensat*/:
     if(!a1) ret=S4(88,a0,0,a2,a3);              /* futimens(fd): the supervisor rejects a NULL path */

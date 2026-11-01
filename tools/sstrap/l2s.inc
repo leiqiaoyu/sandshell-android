@@ -41,17 +41,39 @@ static void l2s_rel(const char*from,const char*to,char*out){
   u64 k=0; for(const char*f=from+last;*f;f++) if(*f=='/'&&f[1]){ out[k++]='.';out[k++]='.';out[k++]='/'; }
   const char*t=to+last; if(*t=='/')t++; scpy(out+k,t);
 }
+/* user.* xattrs need write permission even for the owner: read-only files (git objects are 0444)
+   get u+w for the moment of the update */
+static i64 l2s_xop(i64 nr,const char*p,const char*name,const char*v,i64 n){
+  i64 r= nr==NR_removexattr? S2(nr,p,name) : S5(nr,p,name,v,n,0);
+  if(r!=-EACCES&&r!=-EPERM)return r;
+  struct kstat st; if(S4(NR_newfstatat,AT_FDCWD,p,&st,0)<0)return r;
+  if(S3(NR_fchmodat,AT_FDCWD,p,(st.mode&07777)|0600)<0)return r;
+  r= nr==NR_removexattr? S2(nr,p,name) : S5(nr,p,name,v,n,0);
+  S3(NR_fchmodat,AT_FDCWD,p,st.mode&07777); return r;
+}
 static i64 l2s_cnt(const char*store){ char v[24]; i64 n=S4(NR_getxattr,store,L2S_X,v,sizeof v-1); if(n<=0)return 1;
   i64 x=0; for(i64 i=0;i<n;i++) if(v[i]>='0'&&v[i]<='9') x=x*10+(v[i]-'0'); return x; }
 static void l2s_setcnt(const char*store,i64 x){ char v[24]; int i=23; v[i]=0; if(x<0)x=0; do{v[--i]='0'+x%10;x/=10;}while(x);
-  S5(NR_setxattr,store,L2S_X,v+i,23-i,0); }
+  l2s_xop(NR_setxattr,store,L2S_X,v+i,23-i); }
+/* names of a store: xattr user.sandshell.l2sn = NUL-separated physical paths (best effort) */
+#define L2S_N "user.sandshell.l2sn"
+static i64 l2s_names(const char*store,char*buf){ i64 n=S4(NR_getxattr,store,L2S_N,buf,PB-1); return n<0?0:n; }
+static void l2s_setnames(const char*store,const char*buf,i64 n){
+  if(n<=0) l2s_xop(NR_removexattr,store,L2S_N,0,0); else l2s_xop(NR_setxattr,store,L2S_N,buf,n); }
+static void l2s_addname(const char*store,const char*p,char*buf){
+  i64 n=l2s_names(store,buf); u64 l=slen(p); if(n+l+1>PB-1)return; memcpy(buf+n,p,l+1); l2s_setnames(store,buf,n+l+1); }
+static i64 l2s_delname(char*buf,i64 n,const char*p){ /* remove p from list in place; returns new length */
+  i64 i=0; while(i<n){ i64 l=slen(buf+i); if(seq(buf+i,p)){ memmove(buf+i,buf+i+l+1,n-(i+l+1)); return n-(l+1); } i+=l+1; } return n; }
 /* is (dfd,path) an l2s name? -> store's physical path (PB). m: scratch of >= 4*PB. dir (PB) receives the link's dir */
-static int l2s_store_of(i64 dfd,const char*path,char*store,char*m){
+static int l2s_store_of2(i64 dfd,const char*path,char*store,char*m,char*lp);
+static int l2s_store_of(i64 dfd,const char*path,char*store,char*m){ return l2s_store_of2(dfd,path,store,m,0); }
+static int l2s_store_of2(i64 dfd,const char*path,char*store,char*m,char*lp){
   struct kstat st; if(pathcall(NR_newfstatat,dfd,path,(i64)&st,AT_SYMLINK_NOFOLLOW,0,0,0)<0)return 0;
   if((st.mode&0170000)!=0120000)return 0;
   char*t=m,*dir=m+PB,*tmp=m+2*PB,*sp=m+3*PB; char base[256];
   i64 n=pathcall(NR_readlinkat,dfd,path,(i64)t,PB-1,0,0,0); if(n<=0||!l2s_name(t,n))return 0; t[n]=0;
   if(l2s_split(dfd,path,dir,base,tmp)<0)return 0;
+  if(lp){ if(slen(dir)+slen(base)+2>PB)return 0; l2s_join(lp,dir,base); }
   if(t[0]=='/'){ scpy(sp,t); } else { if(slen(dir)+slen(t)+2>PB)return 0; l2s_join(sp,dir,t); }
   return l2s_norm(sp,store,tmp)==0;
 }
@@ -77,13 +99,13 @@ static i64 emu_link(i64 odfd,const char*opath,i64 ndfd,const char*npath){
     l2s_join(store,od,nm);
     if((r=S4(NR_renameat,AT_FDCWD,op,AT_FDCWD,store))<0)goto out;
     if((r=S3(NR_symlinkat,nm,AT_FDCWD,op))<0){ S4(NR_renameat,AT_FDCWD,store,AT_FDCWD,op); goto out; }
-    l2s_setcnt(store,1); made=1;
+    l2s_setcnt(store,1); made=1; l2s_setnames(store,0,0); l2s_addname(store,op,t);
   }
   l2s_rel(nd,store,rel);
   if((r=S3(NR_symlinkat,rel,AT_FDCWD,np))<0){
     if(made){ S3(NR_unlinkat,AT_FDCWD,op,0); S4(NR_renameat,AT_FDCWD,store,AT_FDCWD,op); }
     goto out; }
-  l2s_setcnt(store,l2s_cnt(store)+1); r=0;
+  l2s_setcnt(store,l2s_cnt(store)+1); l2s_addname(store,np,t); r=0;
   if(S4(NR_newfstatat,AT_FDCWD,store,&s2,0)==0&&!(s2.mode&01000)) S3(NR_fchmodat,AT_FDCWD,store,(s2.mode&07777)|01000);
 out: l2s_free(m); return r;
 }
@@ -96,12 +118,28 @@ static void l2s_fixstat(i64 dfd,const char*path,struct kstat*st,i64 fl){
     if(S4(NR_newfstatat,AT_FDCWD,store,&s2,fl&~AT_SYMLINK_NOFOLLOW)==0){ s2.nlink=(u32)l2s_cnt(store); s2.mode&=~01000; fixids(&s2); *st=s2; } }
   l2s_free(m);
 }
-static void l2s_unlinked(const char*store){ i64 c=l2s_cnt(store)-1; if(c<=0) S3(NR_unlinkat,AT_FDCWD,store,0); else l2s_setcnt(store,c); }
+/* one name of a store went away (lp: its physical path). With one name left the store moves back
+   there as a plain file: "link(tmp,final); unlink(tmp); rm -rf tmpdir" (git, dpkg, ...) stays safe. */
+static void l2s_unlinked(const char*store,const char*lp){
+  i64 c=l2s_cnt(store)-1; if(c<=0){ S3(NR_unlinkat,AT_FDCWD,store,0); return; }
+  l2s_setcnt(store,c);
+  char*m=l2s_mem(); if(!m)return; char*buf=m,*t=m+PB,*sp=m+2*PB,*nm=m+3*PB,*tmp=m+4*PB;
+  i64 n=l2s_names(store,buf); if(lp) n=l2s_delname(buf,n,lp); l2s_setnames(store,buf,n);
+  if(c==1&&n>0&&(i64)slen(buf)+1==n){ /* exactly one known name left: verify it still points here */
+    i64 k=S4(NR_readlinkat,AT_FDCWD,buf,t,PB-1);
+    if(k>0&&l2s_name(t,k)){ t[k]=0; i64 s=-1; for(i64 i=0;buf[i];i++) if(buf[i]=='/') s=i;
+      if(t[0]=='/')scpy(sp,t); else { memcpy(sp,buf,s+1); scpy(sp+s+1,t); }
+      if(l2s_norm(sp,nm,tmp)==0&&seq(nm,store)&&S4(NR_renameat,AT_FDCWD,store,AT_FDCWD,buf)==0){
+        struct kstat st; l2s_xop(NR_removexattr,buf,L2S_X,0,0); l2s_xop(NR_removexattr,buf,L2S_N,0,0);
+        if(S4(NR_newfstatat,AT_FDCWD,buf,&st,AT_SYMLINK_NOFOLLOW)==0) S3(NR_fchmodat,AT_FDCWD,buf,st.mode&06777); } } }
+  l2s_free(m);
+}
 /* after renaming an l2s name to (dfd,path): repoint its relative target */
-static void l2s_repoint(i64 dfd,const char*path,const char*store,char*m){
-  char*dir=m,*tmp=m+PB,*rel=m+2*PB,*np=m+3*PB,*cur=m+5*PB; char base[256];
+static void l2s_repoint(i64 dfd,const char*path,const char*store,char*m,const char*oldp){
+  char*dir=m,*tmp=m+PB,*rel=m+2*PB,*np=m+3*PB,*cur=m+5*PB,*nb=m+6*PB; char base[256];
   if(l2s_split(dfd,path,dir,base,tmp)<0)return;
   l2s_rel(dir,store,rel); l2s_join(np,dir,base);
+  { i64 n=l2s_names(store,nb); n=l2s_delname(nb,n,oldp); u64 l=slen(np); if(n+l+1<=PB-1){ memcpy(nb+n,np,l+1); n+=l+1; } l2s_setnames(store,nb,n); }
   i64 n=S4(NR_readlinkat,AT_FDCWD,np,cur,PB-1); if(n>=0){ cur[n]=0; if(seq(cur,rel))return; }
   u64 l=slen(np); memcpy(tmp,np,l); scpy(tmp+l,".l2s-tmp");
   if(S3(NR_symlinkat,rel,AT_FDCWD,tmp)==0 && S4(NR_renameat,AT_FDCWD,tmp,AT_FDCWD,np)!=0) S3(NR_unlinkat,AT_FDCWD,tmp,0);

@@ -181,10 +181,23 @@ struct kstatx { u32 mask,blksize; u64 attributes; u32 nlink,uid,gid; u16 mode,pa
   struct sxts atime,btime,ctime,mtime; u32 rdev_major,rdev_minor,dev_major,dev_minor; u64 spare[14]; };
 _Static_assert(sizeof(struct kstatx)==256,"statx");
 static void fixids(void*p){ struct kstat*st=p; if(!st)return; if(st->uid==G_appuid)st->uid=0; if(st->gid==G_appgid)st->gid=0; }
+static void l2s_fixstat(i64 dfd,const char*path,struct kstat*st,i64 fl);
+/* emulated hard links: the shared file carries the (otherwise meaningless) sticky bit on a regular
+   file, so plain stat/fstat results flag it for free; only then is the link-count xattr read */
+#define L2S_X "user.sandshell.l2s"
+#define L2S_MARK(m) (((m)&0171000)==0101000)
+static void l2s_fdstat(i64 fd,struct kstat*st){
+  char v[24]; i64 n=S4(10/*fgetxattr*/,fd,L2S_X,v,sizeof v-1);
+  if(n>0){ u32 x=0; for(i64 i=0;i<n;i++) if(v[i]>='0'&&v[i]<='9') x=x*10+(v[i]-'0'); if(x)st->nlink=x; st->mode&=~01000; }
+}
 static i64 x_fstatat(i64 dfd,const char*path,struct kstat*st,i64 fl){
-  if(path&&path[0]==0&&(fl&AT_EMPTY_PATH)){ i64 r=S2(NR_fstat,dfd,st); if(r>=0)fixids(st); return r; }
-  return pathcall(NR_newfstatat,dfd,path,(i64)st,fl,0,1,st); }
-static i64 x_fstat(i64 fd,struct kstat*st){ i64 r=S2(NR_fstat,fd,st); if(r>=0)fixids(st); return r; }
+  if(path&&path[0]==0&&(fl&AT_EMPTY_PATH)){ i64 r=S2(NR_fstat,dfd,st); if(r>=0){fixids(st); if(L2S_MARK(st->mode))l2s_fdstat(dfd,st);} return r; }
+  i64 r=pathcall(NR_newfstatat,dfd,path,(i64)st,fl,0,1,st);
+  if(r==0&&L2S_MARK(st->mode)){ i64 fd=pathcall(NR_openat,dfd,path,02000000|04000|((fl&AT_SYMLINK_NOFOLLOW)?0x8000:0),0,0,0,0);
+    if(fd>=0){ l2s_fdstat(fd,st); S1(NR_close,fd); } }
+  if(r==0&&(fl&AT_SYMLINK_NOFOLLOW)&&(st->mode&0170000)==0120000) l2s_fixstat(dfd,path,st,fl);
+  return r; }
+static i64 x_fstat(i64 fd,struct kstat*st){ i64 r=S2(NR_fstat,fd,st); if(r>=0){fixids(st); if(L2S_MARK(st->mode))l2s_fdstat(fd,st);} return r; }
 static i64 x_faccessat(i64 dfd,const char*path,i64 mode,i64 fl){ return pathcall(NR_faccessat,dfd,path,mode,fl,0,0,0); }
 static i64 x_openat(i64 dfd,const char*path,i64 fl,i64 mode){ return pathcall(NR_openat,dfd,path,fl,mode,0,0,0); }
 static u32 dmaj(u64 d){return (u32)(((d>>8)&0xfff)|((d>>32)&~0xfffull));}
@@ -220,13 +233,17 @@ static int is_proc_self(const char*p,const char*leaf){
   return seq(p,leaf);
 }
 
+#include "l2s.inc"
+
 static i64 emu_readlinkat(i64 dfd,const char*path,char*buf,i64 sz){
   if(sz<=0)return -EINVAL;
   if(dfd==AT_FDCWD&&path&&is_proc_self(path,"exe")){i64 n=slen(G_exe);if(n>sz)n=sz;memcpy(buf,G_exe,n);return n;}
   if(dfd==AT_FDCWD&&path&&is_proc_self(path,"cwd")){
     char t[4096]; i64 n=S2(NR_getcwd,t,sizeof t); if(n<0)return n; n=p2v(t,n-1); if(n>sz)n=sz; memcpy(buf,t,n); return n; }
   if(dfd==AT_FDCWD&&path&&is_proc_self(path,"root")){buf[0]='/';return 1;}
-  i64 n=pathcall(NR_readlinkat,dfd,path,(i64)buf,sz,0,0,0); if(n<=0)return n; return p2v(buf,n);
+  i64 n=pathcall(NR_readlinkat,dfd,path,(i64)buf,sz,0,0,0); if(n<=0)return n;
+  if(l2s_name(buf,n))return -EINVAL;   /* an emulated hard link is not a symlink */
+  return p2v(buf,n);
 }
 
 static i64 emu_getcwd(char*buf,u64 sz){
@@ -355,19 +372,30 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   /* ---- ENOSYS on Android kernel/supervisor ---- */
   case NR_statx: ret=emu_statx(a0,(const char*)a1,a2,a3,(struct kstatx*)a4); break;
   case NR_faccessat2: ret=x_faccessat(a0,(const char*)a1,a2,0); break;
-  case NR_renameat2:
-    if(a4==0)ret=S4(NR_renameat,a0,a1,a2,a3);
-    else if(a4==1){ struct kstat st; i64 r=x_fstatat(a2,(const char*)a3,&st,AT_SYMLINK_NOFOLLOW);
-      ret= r==0? -EEXIST : (r!=-ENOENT? r : S4(NR_renameat,a0,a1,a2,a3)); }
-    else ret=-EINVAL;
-    break;
+  case NR_renameat: a4=0; /* fallthrough: same bookkeeping */
+  case NR_renameat2: { char*m=l2s_mem(); char*ss=m?m+8*PB:0,*ds=m?m+9*PB:0;
+    int sl=m&&l2s_store_of(a0,(const char*)a1,ss,m), dl=m&&l2s_store_of(a2,(const char*)a3,ds,m);
+    if(sl&&dl&&seq(ss,ds)&&!(a4&1)){ ret=0; l2s_free(m); break; }   /* both names of one file: no-op */
+    if(!m){ ret=-12; break; }
+    if(a4&~1ul) ret=-EINVAL;
+    else { struct kstat st; i64 r= a4? x_fstatat(a2,(const char*)a3,&st,AT_SYMLINK_NOFOLLOW) : -ENOENT;
+      if(r==0) ret=-EEXIST; else if(r!=-ENOENT) ret=r;
+      else if(is_shm((const char*)a1)&&is_shm((const char*)a3)){ char*c1=m+10*PB,*c2=m+11*PB; i64 e1=0,e2=0;
+        const char*p1=v2p((const char*)a1,c1,PB,&e1),*p2=v2p((const char*)a3,c2,PB,&e2); ret=e1?e1:e2?e2:S4(NR_renameat,a0,p1,a2,p2); }
+      else { /* through the supervisor (it maps paths); private copies: it rewrites them in place */
+        char*c1=m+10*PB,*c2=m+11*PB; u64 l1=slen((const char*)a1),l2=slen((const char*)a3);
+        if(l1>=PB||l2>=PB) ret=-ENAMETOOLONG;
+        else { memcpy(c1,(const char*)a1,l1+1); memcpy(c2,(const char*)a3,l2+1); ret=SL(NR_renameat,a0,(i64)c1,a2,(i64)c2,0); } } }
+    if(ret==0){ if(dl) l2s_unlinked(ds); if(sl) l2s_repoint(a2,(const char*)a3,ss,m); }
+    l2s_free(m); break; }
   case NR_fchmodat2:
-    if(a3==0)ret=S3(NR_fchmodat,a0,a1,a2);
+    if(a3==0)ret=pathcall(NR_fchmodat,a0,(const char*)a1,a2,0,0,0,0);
     else if((a3&AT_EMPTY_PATH)&&a1&&((const char*)a1)[0]==0)ret=S2(NR_fchmod,a0,a2);
     else if(a3&AT_SYMLINK_NOFOLLOW)ret=-EOPNOTSUPP; else ret=-EINVAL;
     break;
   case NR_openat2: { const u64*how=(const u64*)a2; if(!how||a3<16){ret=-EINVAL;break;}
-    ret=S4(NR_openat,a0,a1,how[0],how[1]); break; }
+    if(!(how[0]&(0x3|0x40|0x200|0x200000|0x400000))) ret=x_openat(a0,(const char*)a1,how[0],how[1]);
+    else ret=SL(NR_openat,a0,a1,how[0],how[1],0); break; }
   case NR_memfd_create: ret=emu_memfd((const char*)a0,a1); break;
   /* ---- unmediated path syscalls ---- */
   case NR_chdir: p=v2p((const char*)a0,b1,sizeof b1,&e); ret=e?e:S1(NR_chdir,p); break;
@@ -389,6 +417,7 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
        a no-replace rename keeps the same inode (shared mapping) and EEXIST semantics */
     if((ret==-13||ret==-1)&&a0==AT_FDCWD&&a2==AT_FDCWD&&is_shm((const char*)a1)&&is_shm((const char*)a3))
       ret=S5(NR_renameat2,AT_FDCWD,p1,AT_FDCWD,p2,1);
+    else if(ret==-EACCES||ret==-EPERM) ret=emu_link(a0,(const char*)a1,a2,(const char*)a3);
     break; }
   case NR_bind: case NR_connect: ret=emu_sockaddr(nr,a0,(const u8*)a1,a2); break;
   case NR_getcwd: ret=emu_getcwd((char*)a0,a1); break;
@@ -399,10 +428,14 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
     if(!(a2&(0x3|0x40|0x200|0x200000|0x400000))) ret=x_openat(a0,(const char*)a1,a2,a3);
     else if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(NR_openat,a0,p,a2,a3); }
     else ret=SL(NR_openat,a0,a1,a2,a3,0);   /* writes/creates: supervisor policy */
+    if(ret==-40&&(a2&0x8000)){ /* O_NOFOLLOW on an emulated hard link: open the file itself */
+      char*m=l2s_mem(); if(m&&l2s_store_of(a0,(const char*)a1,m+4*PB,m)) ret=S4(NR_openat,AT_FDCWD,m+4*PB,a2&~0x8000l,a3); l2s_free(m); }
     break;
   case NR_unlinkat:
     if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S3(NR_unlinkat,a0,p,a2); }
-    else ret=SL(NR_unlinkat,a0,a1,a2,0,0);
+    else if(a2&0x200) ret=SL(NR_unlinkat,a0,a1,a2,0,0);
+    else { char*m=l2s_mem(); int l=m&&l2s_store_of(a0,(const char*)a1,m+4*PB,m);
+      ret=SL(NR_unlinkat,a0,a1,a2,0,0); if(ret==0&&l) l2s_unlinked(m+4*PB); l2s_free(m); }
     break;
   case 88/*utimensat*/:
     if(!a1) ret=S4(88,a0,0,a2,a3);              /* futimens(fd): the supervisor rejects a NULL path */
@@ -443,7 +476,7 @@ struct sock_fprog { u16 len; struct sock_filter*filter; };
 #define SECCOMP_RET_TRAP 0x00030000u
 #define AUDIT_ARCH_AARCH64 0xc00000b7u
 
-static const int TRAPPED[]={NR_openat,NR_unlinkat,88,158,NR_fstat,NR_newfstatat,NR_faccessat,NR_getuid,175,NR_getgid,177,NR_statx,NR_faccessat2,NR_renameat2,NR_fchmodat2,NR_openat2,NR_memfd_create,
+static const int TRAPPED[]={NR_openat,NR_unlinkat,88,158,NR_fstat,NR_newfstatat,NR_faccessat,NR_getuid,175,NR_getgid,177,NR_statx,NR_faccessat2,NR_renameat2,NR_renameat,NR_fchmodat2,NR_openat2,NR_memfd_create,
   NR_chdir,NR_truncate,NR_getxattr,NR_lgetxattr,NR_setxattr,NR_lsetxattr,NR_listxattr,NR_llistxattr,
   NR_removexattr,NR_lremovexattr,NR_inotify_add_watch,NR_mknodat,NR_symlinkat,NR_linkat,NR_bind,NR_connect,
   NR_getcwd,NR_readlinkat,NR_execve,NR_execveat,NR_rt_sigaction,NR_rt_sigprocmask,

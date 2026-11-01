@@ -569,6 +569,10 @@ void __attribute__((noreturn)) cmain(u64*sp){
   for(int lvl=0;lvl<4;lvl++){
     i64 fd=x_openat(AT_FDCWD,path,02000000,0); if(fd<0)die("open program",fd);
     char h[256]; i64 n=S4(NR_pread64,fd,h,255,0); S1(NR_close,fd); if(n<2)die("short file",n); h[n]=0;
+    if(n>=64&&h[0]==0x7f&&h[1]=='E'&&h[2]=='L'&&h[3]=='F'&&(((const Ehdr*)h)->entry>>32)==0x60&&pargc>1){
+      /* the program is sstrap itself (nested run): it would map over our own code at 0x60..., and the
+         filter/handler are already in place, so just run its target directly */
+      static char nb[4][4096]; path=find_prog(pargv[1],envp,nb[lvl]); pargv++; pargc--; G_comm_src=path; continue; }
     if(!(h[0]=='#'&&h[1]=='!'))break;
     char*s=h+2; while(*s==' '||*s=='\t')s++; char*interp=s; while(*s&&*s!=' '&&*s!='\t'&&*s!='\n')s++;
     char*arg=0; if(*s==' '||*s=='\t'){ *s++=0; while(*s==' '||*s=='\t')s++; if(*s&&*s!='\n'){arg=s; while(*s&&*s!='\n')s++; while(s>arg&&(s[-1]==' '||s[-1]=='\t'))s--; } }

@@ -248,9 +248,16 @@ static i64 emu_rt_sigaction(i64 sig,const struct ksigaction*act,struct ksigactio
   if(act&&(act->mask&SIGSYS_BIT)){struct ksigaction a=*act; a.mask&=~SIGSYS_BIT; return S4(NR_rt_sigaction,sig,&a,old,ssz);}
   return S4(NR_rt_sigaction,sig,act,old,ssz);
 }
-static i64 emu_rt_sigprocmask(i64 how,const u64*set,u64*old,i64 ssz){
-  if(set&&how!=1/*SIG_UNBLOCK*/&&(*set&SIGSYS_BIT)){u64 s=*set&~SIGSYS_BIT; return S4(NR_rt_sigprocmask,how,&s,old,ssz);}
-  return S4(NR_rt_sigprocmask,how,set,old,ssz);
+/* the mask must be changed in the saved ucontext: sigreturn restores uc_sigmask,
+   so a real rt_sigprocmask issued inside the handler would be undone on return */
+static i64 emu_rt_sigprocmask(i64 how,const u64*set,u64*old,i64 ssz,u64*ucmask){
+  if(ssz!=8)return -EINVAL;
+  u64 cur=*ucmask&~SIGSYS_BIT;
+  if(set){ u64 s=*set;
+    if(how==0)cur|=s; else if(how==1)cur&=~s; else if(how==2)cur=s; else return -EINVAL; }
+  if(old)*old=*ucmask&~SIGSYS_BIT;
+  *ucmask=cur&~(SIGSYS_BIT|(1ul<<8)|(1ul<<18)); /* never block SIGSYS; SIGKILL(9)/SIGSTOP(19) unblockable */
+  return 0;
 }
 
 /* execve: re-enter the loader so the new image also gets the handler (filter is inherited) */
@@ -359,7 +366,7 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_execveat: ret=emu_execve(a0,(const char*)a1,(char*const*)a2,(char*const*)a3,a4); break;
   /* ---- keep SIGSYS deliverable ---- */
   case NR_rt_sigaction: ret=emu_rt_sigaction(a0,(const struct ksigaction*)a1,(struct ksigaction*)a2,a3); break;
-  case NR_rt_sigprocmask: ret=emu_rt_sigprocmask(a0,(const u64*)a1,(u64*)a2,a3); break;
+  case NR_rt_sigprocmask: ret=emu_rt_sigprocmask(a0,(const u64*)a1,(u64*)a2,a3,(u64*)&uc->uc_sigmask); break;
   default: ret=-ENOSYS; break;
   }
   dbg(nr,ret);

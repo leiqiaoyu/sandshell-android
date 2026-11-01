@@ -138,7 +138,9 @@ static u32 dmin(u64 d){return (u32)((d&0xff)|((d>>12)&~0xffull));}
 
 static i64 emu_statx(i64 dfd,const char*path,i64 flags,u64 mask,struct kstatx*sx){
   (void)mask; struct kstat st;
-  i64 r=S4(NR_newfstatat,dfd,path,&st,flags&(AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH|AT_NO_AUTOMOUNT));
+  i64 r;
+  if((flags&AT_EMPTY_PATH)&&path&&path[0]==0) r=S2(80/*fstat*/,dfd,&st);
+  else r=S4(NR_newfstatat,dfd,path,&st,flags&(AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH|AT_NO_AUTOMOUNT));
   if(r<0)return r;
   memset(sx,0,sizeof *sx);
   sx->mask=0x7ff; sx->blksize=st.blksize; sx->nlink=st.nlink; sx->uid=st.uid; sx->gid=st.gid; sx->mode=(u16)st.mode;
@@ -429,8 +431,17 @@ void __attribute__((noreturn)) cmain(u64*sp){
   while(G_plen>1&&G_prefix[G_plen-1]=='/')G_prefix[--G_plen]=0;
 
   if(G_debug&&!reexec){ wr("[sstrap] prefix='");wr(G_prefix);wr("'\n"); }
-  /* own virtual path for re-exec */
-  { i64 n=S4(NR_readlinkat,AT_FDCWD,"/proc/self/exe",G_self,sizeof G_self-1); if(n<0)die("readlink self",n); G_self[n]=0; n=p2v(G_self,n); G_self[n]=0; }
+  /* own virtual path for re-exec. /proc/self/exe is NOT usable inside Sandshell (it can name the
+     supervisor's exec launcher), so: SSTRAP_SELF, else argv[0] made absolute (re-exec passes it on). */
+  { int got=0; for(char**e=envp;*e;e++) if(spre(*e,"SSTRAP_SELF=")){ scpy(G_self,*e+12); got=1; }
+    if(!got){ const char*a0=argv[0]; char tmp[4096];
+      if(a0[0]!='/'){ int slash=0; for(const char*c=a0;*c;c++)if(*c=='/')slash=1;
+        if(!slash) a0=find_prog(a0,envp,tmp);
+        if(a0[0]!='/'){ char cwd[512]; i64 n=emu_getcwd(cwd,sizeof cwd);
+          if(n>0&&slen(cwd)+slen(a0)+2<sizeof G_self){ scpy(G_self,cwd); u64 l=slen(G_self); G_self[l]='/'; scpy(G_self+l+1,a0[0]=='.'&&a0[1]=='/'?a0+2:a0); got=1; } } }
+      if(!got) scpy(G_self,a0); }
+    if(G_debug){ char x[512]; i64 n=S4(NR_readlinkat,AT_FDCWD,"/proc/self/exe",x,sizeof x-1); if(n<0)n=0; x[n]=0;
+      wr("[sstrap] self='");wr(G_self);wr("' /proc/self/exe='");wr(x);wr("'\n"); } }
 
   const char*path; char**pargv; char pbuf[4096];
   if(reexec){ path=argv[2]; pargv=argv+3; }

@@ -85,6 +85,7 @@ static u64  G_plen;
 static char G_self[512];     /* our own path as the program namespace sees it */
 static char G_exe[512];      /* virtual path of the loaded program (for /proc/self/exe) */
 static int  G_debug;
+static const char*G_comm_src="";
 static u64  G_prog_sigsys[4];/* program's view of its SIGSYS action (never installed) */
 
 /* ---------------- path translation ---------------- */
@@ -93,11 +94,15 @@ static int passthrough(const char*p){
   for(int i=0;PASS[i];i++){const char*q=PASS[i];u64 n=slen(q);if(spre(p,q)&&(p[n]==0||p[n]=='/'))return 1;}
   return 0;
 }
+/* Android has no /dev/shm: POSIX shm/semaphores live in <rootfs>/run/shm */
+static int is_shm(const char*p){ return p&&spre(p,"/dev/shm")&&(p[8]==0||p[8]=='/'); }
 /* virtual -> physical for syscalls the supervisor does NOT mediate. returns ptr to use. */
 static const char *v2p(const char*p,char*buf,u64 cap,i64*err){
   *err=0;
   if(!p||!G_plen||p[0]!='/')return p;
   if(spre(p,G_prefix)&&(p[G_plen]==0||p[G_plen]=='/'))return p;
+  if(is_shm(p)){ u64 n=slen(p+8); if(G_plen+8+n+1>cap){*err=-ENAMETOOLONG;return p;}
+    memcpy(buf,G_prefix,G_plen); memcpy(buf+G_plen,"/run/shm",8); memcpy(buf+G_plen+8,p+8,n+1); return buf; }
   if(passthrough(p))return p;
   u64 n=slen(p);if(G_plen+n+1>cap){*err=-ENAMETOOLONG;return p;}
   memcpy(buf,G_prefix,G_plen);memcpy(buf+G_plen,p,n+1);
@@ -357,7 +362,20 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_fstat: ret=x_fstat(a0,(struct kstat*)a1); break;
   case NR_newfstatat: ret=x_fstatat(a0,(const char*)a1,(struct kstat*)a2,a3); break;
   case NR_faccessat: ret=x_faccessat(a0,(const char*)a1,a2,a3); break;
-  case NR_openat: ret=x_openat(a0,(const char*)a1,a2,a3); break;
+  case NR_openat:
+    if(!(a2&(0x3|0x40|0x200|0x200000|0x400000))) ret=x_openat(a0,(const char*)a1,a2,a3);
+    else if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(NR_openat,a0,p,a2,a3); }
+    else ret=SL(NR_openat,a0,a1,a2,a3,0);   /* writes/creates: supervisor policy */
+    break;
+  case NR_unlinkat:
+    if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S3(NR_unlinkat,a0,p,a2); }
+    else ret=SL(NR_unlinkat,a0,a1,a2,0,0);
+    break;
+  case 88/*utimensat*/:
+    if(!a1) ret=S4(88,a0,0,a2,a3);              /* futimens(fd): the supervisor rejects a NULL path */
+    else { p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(88,a0,p,a2,a3);
+      if(ret==-ENOENT||ret==-EACCES||ret==-EPERM) ret=SL(88,a0,a1,a2,a3,0); }
+    break;
   case NR_getuid: case 175: case NR_getgid: case 177: ret=0; break;
   case 158/*getgroups*/: if(a0==0)ret=1; else if(a0<0)ret=-EINVAL; else { ((u32*)a1)[0]=0; ret=1; } break;
   case NR_readlinkat: ret=emu_readlinkat(a0,(const char*)a1,(char*)a2,a3); break;
@@ -392,7 +410,7 @@ struct sock_fprog { u16 len; struct sock_filter*filter; };
 #define SECCOMP_RET_TRAP 0x00030000u
 #define AUDIT_ARCH_AARCH64 0xc00000b7u
 
-static const int TRAPPED[]={158,NR_fstat,NR_newfstatat,NR_faccessat,NR_getuid,175,NR_getgid,177,NR_statx,NR_faccessat2,NR_renameat2,NR_fchmodat2,NR_openat2,NR_memfd_create,
+static const int TRAPPED[]={NR_openat,NR_unlinkat,88,158,NR_fstat,NR_newfstatat,NR_faccessat,NR_getuid,175,NR_getgid,177,NR_statx,NR_faccessat2,NR_renameat2,NR_fchmodat2,NR_openat2,NR_memfd_create,
   NR_chdir,NR_truncate,NR_getxattr,NR_lgetxattr,NR_setxattr,NR_lsetxattr,NR_listxattr,NR_llistxattr,
   NR_removexattr,NR_lremovexattr,NR_inotify_add_watch,NR_mknodat,NR_symlinkat,NR_linkat,NR_bind,NR_connect,
   NR_getcwd,NR_readlinkat,NR_execve,NR_execveat,NR_rt_sigaction,NR_rt_sigprocmask,
@@ -421,12 +439,6 @@ static void install_filter(void){
   f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);                /* issued by sstrap itself */
   f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,0);                         /* nr */
   /* openat: only read-only opens are fast-pathed; writes/creates keep the supervisor's policy */
-  f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,NR_openat,0,4);
-  f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,32);                        /* args[2] low word = flags */
-  f[n++]=JUMP(BPF_JMP|0x40/*JSET*/|BPF_K,0x3|0x40|0x200|0x200000|0x400000,1,0);
-  f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_TRAP);
-  f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
-  f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,0);
   int cnt=0; while(TRAPPED[cnt]>=0)cnt++;
   for(int i=0;i<cnt;i++) f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,TRAPPED[i],(u8)(cnt-i),0);
   f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
@@ -550,6 +562,7 @@ void __attribute__((noreturn)) cmain(u64*sp){
   if(reexec){ path=argv[2]; pargv=argv+3; }
   else { path=find_prog(argv[1],envp,pbuf); pargv=argv+1; }
   i64 pargc=0; while(pargv[pargc])pargc++;
+  G_comm_src=path;
 
   /* shebang (up to 4 levels) */
   static char *sbv[1024]; static char sbl[4][256];
@@ -572,6 +585,11 @@ void __attribute__((noreturn)) cmain(u64*sp){
   { scpy(G_exe,path); if(path[0]!='/'){ char cwd[512]; i64 n=emu_getcwd(cwd,sizeof cwd);
       if(n>0&&slen(cwd)+slen(path)+2<sizeof G_exe){ scpy(G_exe,cwd); u64 l=slen(G_exe); G_exe[l]='/'; scpy(G_exe+l+1,path[0]=='.'&&path[1]=='/'?path+2:path);} } }
 
+  /* comm = basename of what was run (as the kernel would show it), not "sstrap" */
+  { const char*b=G_comm_src; for(const char*c=b;*c;c++) if(*c=='/') b=c+1; char nm[16]; u64 k=0; while(b[k]&&k<15){nm[k]=b[k];k++;} nm[k]=0;
+    S5(NR_prctl,15/*PR_SET_NAME*/,(i64)nm,0,0,0); }
+  if(!reexec&&G_plen){ char d[600]; memcpy(d,G_prefix,G_plen); scpy(d+G_plen,"/run"); S3(NR_mkdirat,AT_FDCWD,d,0755);
+    scpy(d+G_plen,"/run/shm"); if(S3(NR_mkdirat,AT_FDCWD,d,01777)==0) S3(NR_fchmodat,AT_FDCWD,d,01777); }
   struct loaded P,I; load_elf(path,&P,1);
   u64 entry=P.entry, ibase=0;
   if(P.interp[0]){ load_elf(P.interp,&I,0); entry=I.entry; ibase=I.base; }

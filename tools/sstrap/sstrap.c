@@ -356,7 +356,12 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
     ret=e?e:e2?e2:S3(nr,t,a1,p); break; }
   case NR_linkat: { char b2[4096]; const char*p1=(const char*)a1,*p2=(const char*)a3; i64 e2=0; e=0;
     if(a0==AT_FDCWD)p1=v2p(p1,b1,sizeof b1,&e); if(a2==AT_FDCWD)p2=v2p(p2,b2,sizeof b2,&e2);
-    ret=e?e:e2?e2:S5(nr,a0,p1,a2,p2,a4); break; }
+    ret=e?e:e2?e2:S5(nr,a0,p1,a2,p2,a4);
+    /* Android forbids hard links; glibc sem_open does link(tmp,sem.NAME) then unlink(tmp) in /dev/shm:
+       a no-replace rename keeps the same inode (shared mapping) and EEXIST semantics */
+    if((ret==-13||ret==-1)&&a0==AT_FDCWD&&a2==AT_FDCWD&&is_shm((const char*)a1)&&is_shm((const char*)a3))
+      ret=S5(NR_renameat2,AT_FDCWD,p1,AT_FDCWD,p2,1);
+    break; }
   case NR_bind: case NR_connect: ret=emu_sockaddr(nr,a0,(const u8*)a1,a2); break;
   case NR_getcwd: ret=emu_getcwd((char*)a0,a1); break;
   case NR_fstat: ret=x_fstat(a0,(struct kstat*)a1); break;

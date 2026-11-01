@@ -302,6 +302,11 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   /* ---- Android-killed syscalls ---- */
   case NR_rseq: case NR_set_robust_list: case NR_io_uring_setup: case NR_futex_waitv: ret=-ENOSYS; break;
   case NR_accept: ret=S4(NR_accept4,a0,a1,a2,0); break;
+  case 269/*sendmmsg*/: { u8*m=(u8*)a1; i64 i; ret=0;
+    for(i=0;i<a2;i++){ i64 r=S3(211/*sendmsg*/,a0,(i64)(m+64*i),a3); if(r<0){ ret= i? i : r; break; } *(u32*)(m+64*i+56)=(u32)r; ret=i+1; }
+    break; }
+  case 243/*recvmmsg*/: { u8*m=(u8*)a1; if(a2<=0){ret=a2<0?-EINVAL:0;break;}
+    i64 r=S3(212/*recvmsg*/,a0,(i64)m,a3&~0x10000/*MSG_WAITFORONE*/); if(r<0)ret=r; else { *(u32*)(m+56)=(u32)r; ret=1; } break; }
   case NR_setuid: case NR_setgid: case NR_setreuid: case NR_setregid: case NR_setresuid: case NR_setresgid:
   case NR_setgroups: ret=0; break;
   case NR_setfsuid: case NR_setfsgid: ret=0; break;

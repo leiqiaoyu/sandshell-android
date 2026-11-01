@@ -338,8 +338,11 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
     p=v2p((const char*)a0,b1,sizeof b1,&e); ret=e?e:S5(nr,p,a1,a2,a3,a4); break;
   case NR_inotify_add_watch: p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S3(nr,a0,p,a2); break;
   case NR_mknodat: if(a0==AT_FDCWD){p=v2p((const char*)a1,b1,sizeof b1,&e); ret=e?e:S4(nr,a0,p,a2,a3);} else ret=S4(nr,a0,a1,a2,a3); break;
-  case NR_symlinkat: /* target text stays virtual; translate link location */
-    if(a1==AT_FDCWD){p=v2p((const char*)a2,b1,sizeof b1,&e); ret=e?e:S3(nr,a0,a1,p);} else ret=S3(nr,a0,a1,a2); break;
+  case NR_symlinkat: { /* absolute target -> physical (kernel resolves it); readlinkat maps it back */
+    char b2[4096]; const char*t=(const char*)a0; i64 e2=0; e=0;
+    if(t&&t[0]=='/')t=v2p(t,b2,sizeof b2,&e2);
+    p=(const char*)a2; if(a1==AT_FDCWD)p=v2p(p,b1,sizeof b1,&e);
+    ret=e?e:e2?e2:S3(nr,t,a1,p); break; }
   case NR_linkat: { char b2[4096]; const char*p1=(const char*)a1,*p2=(const char*)a3; i64 e2=0; e=0;
     if(a0==AT_FDCWD)p1=v2p(p1,b1,sizeof b1,&e); if(a2==AT_FDCWD)p2=v2p(p2,b2,sizeof b2,&e2);
     ret=e?e:e2?e2:S5(nr,a0,p1,a2,p2,a4); break; }

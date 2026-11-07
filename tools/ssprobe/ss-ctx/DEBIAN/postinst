@@ -1,0 +1,13 @@
+#!/bin/sh
+# Sandshell: probe the dpkg maintainer-script environment (writes /root/ctx.txt)
+O=/root/ctx.txt; [ -w /root ] || O=/tmp/ctx.txt
+{
+echo "== env"; echo "PATH=$PATH"; echo "LD_PRELOAD=$LD_PRELOAD"; env | grep -iE 'sstrap|sandshell|DEBIAN_' | sort
+echo "== self"; ls -l /proc/$$/exe; grep -c sstrap /proc/$$/maps; grep -E 'SigBlk|PPid' /proc/$$/status
+echo "== mv"; command -v mv; mv --version 2>&1 | head -1; sh -c 'ls -l /proc/self/exe'
+echo "== link /etc"; echo a > /etc/.ssctx.$$ && ln /etc/.ssctx.$$ /etc/.ssctx.lock; echo "ln rc=$?"; ls -la /etc/.ssctx* /etc/.l2s..ssctx* 2>&1
+rm -f /etc/.ssctx.$$ /etc/.ssctx.lock /etc/.l2s..ssctx.*
+echo "== rename /etc/ssl/certs"; echo b > /etc/ssl/certs/.ssctx.new && mv -f /etc/ssl/certs/.ssctx.new /etc/ssl/certs/.ssctx; echo "mv rc=$?"; rm -f /etc/ssl/certs/.ssctx /etc/ssl/certs/.ssctx.new
+echo "== parent chain"; p=$$; for i in 1 2 3 4 5 6; do p=$(awk '/^PPid/{print $2}' /proc/$p/status 2>/dev/null); [ -n "$p" ] && [ "$p" != 0 ] || break; printf '%s: ' "$p"; tr '\0' ' ' < /proc/$p/cmdline; printf ' [sstrap maps=%s]\n' "$(grep -c sstrap /proc/$p/maps 2>/dev/null)"; done
+} > "$O" 2>&1
+exit 0

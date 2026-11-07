@@ -69,7 +69,7 @@ NAME="git clone https"; need git && chk "$NAME" 'git clone -q --depth 1 https://
 
 # --- debugging & tools
 NAME="strace -f";    need strace && chk "$NAME" 'strace -f -o /dev/null true'
-NAME="gdb run";      need gdb gcc && chk "$NAME" 'gcc -g h.c -o hg && gdb -batch -ex run -ex bt ./hg'
+NAME="gdb run";      need gdb gcc && chk "$NAME" 'gcc -g h.c -o hg && gdb -batch -ex "break main" -ex run -ex bt ./hg 2>&1 | grep -E "^#0 +main "'
 NAME="tmux";         need tmux && chk "$NAME" 'tmux -L par new -d "sleep 2" && tmux -L par ls && tmux -L par kill-server'
 NAME="ssh-keygen";   need ssh-keygen && chk "$NAME" 'ssh-keygen -q -t ed25519 -N "" -f k'
 NAME="fakeroot";     need fakeroot && chk "$NAME" 'fakeroot sh -c "chown 0:0 a && [ \$(stat -c %u a) = 0 ]"'

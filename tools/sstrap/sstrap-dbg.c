@@ -245,6 +245,32 @@ static i64 emu_memfd(const char*name,u64 flags){
   if(fd<0)return fd; S3(NR_unlinkat,AT_FDCWD,p,0); return fd;
 }
 
+/* The kernel's auxv of a program we load is sstrap's own (AT_ENTRY/AT_PHDR/AT_BASE...). The loader keeps the
+   one it built here; /proc/<pid>/auxv opens get that instead (gdb finds the PIE base and solibs from it). */
+#define AUXV_MAGIC 0x3130565855415353ul   /* "SSAUXV01" */
+static volatile u64 G_auxv[2+2*64];
+static i64 fake_auxv(const char*p){
+  if(!spre(p,"/proc/"))return 0; const char*q=p+6; u64 pid=0; int self=0;
+  if(spre(q,"self/"))q+=5,self=1; else if(spre(q,"thread-self/"))q+=12,self=1;
+  else { if(*q<'0'||*q>'9')return 0; while(*q>='0'&&*q<='9')pid=pid*10+(u64)(*q++-'0'); if(*q++!='/')return 0; }
+  if(!(q[0]=='a'&&q[1]=='u'&&q[2]=='x'&&q[3]=='v'&&q[4]==0))return 0;
+  if(!self&&pid==(u64)S0(NR_getpid))self=1;
+  static u64 tmp[2+2*64]; u64*src=tmp; /* only used briefly; signal handler runs with others blocked */
+  if(self){ if(G_auxv[0]!=AUXV_MAGIC)return 0; for(int i=0;i<2+2*64;i++)tmp[i]=G_auxv[i]; }
+  else { char mp[40]="/proc/"; char*w=mp+6; char b[24];int i=23;b[i]=0;u64 u=pid;do{b[--i]='0'+u%10;u/=10;}while(u);
+    while(b[i])*w++=b[i++]; const char*t="/mem"; while(*t)*w++=*t++; *w=0;
+    i64 fd=S4(NR_openat,AT_FDCWD,mp,0,0); if(fd<0)return 0;
+    i64 r=S4(NR_pread64,fd,tmp,sizeof tmp,(i64)(u64)G_auxv); S1(NR_close,fd);
+    if(r!=(i64)sizeof tmp||tmp[0]!=AUXV_MAGIC)return 0; }
+  u64 n=src[1]; if(n>2*64)return 0;
+  char fp[64]="/tmp/.sstrap-auxv-"; u64 x; S3(278,&x,8,0);
+  char*e=fp+slen(fp); for(int i=0;i<12;i++){*e++="0123456789abcdef"[x&15];x>>=4;} *e=0;
+  i64 fd=SL(NR_openat,AT_FDCWD,(i64)fp,02|0100|0200|02000000,0600,0); if(fd<0)return 0;
+  SL(NR_unlinkat,AT_FDCWD,(i64)fp,0,0,0);
+  S3(NR_write,fd,src+2,n*8); S3(62/*lseek*/,fd,0,0);
+  return fd;
+}
+
 static int is_proc_self(const char*p,const char*leaf){
   /* /proc/self/<leaf> or /proc/<ourpid>/<leaf> or /proc/thread-self/<leaf> */
   if(!spre(p,"/proc/"))return 0; p+=6;
@@ -388,10 +414,12 @@ static i64 emu_execve_(i64 dfd,const char*upath,char*const*argv,char*const*envp,
     if(argc==0)nv[k++]=pathv; else for(u64 i=0;i<argc;i++)nv[k++]=argv[i];
     if(a0ov&&k>0)nv[0]=(char*)a0ov;
     nv[k++]=0; char**ne=nv+k;
-    for(u64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X=")&&!spre(envp[i],"SSTRAP_SELF=")&&!spre(envp[i],"SSTRAP_TM="))nv[k++]=envp[i];
-    nv[k++]=senv; nv[k++]=xenv; if(tm)nv[k++]=(char*)"SSTRAP_TM=1"; nv[k]=0;
+    for(u64 i=0;i<envc;i++) if(!spre(envp[i],"SSTRAP_X=")&&!spre(envp[i],"SSTRAP_SELF=")&&!spre(envp[i],"SSTRAP_TM=")&&!spre(envp[i],"SSTRAP_TB="))nv[k++]=envp[i];
+    nv[k++]=senv; nv[k++]=xenv; if(tm)nv[k++]=(char*)"SSTRAP_TM=1"; if(pm&&(*pm&(1ul<<4)))nv[k++]=(char*)"SSTRAP_TB=1"; nv[k]=0;
     /* the new image inherits the signal mask: give it the program's, not the handler's (all blocked) */
-    if(pm){ u64 m=*pm&~SIGSYS_BIT; S4(NR_rt_sigprocmask,2,(i64)&m,0,8); }
+    /* SIGTRAP stays blocked across the exec: a tracer's exec-SIGTRAP then arrives after our loader has
+       mapped the program (and recorded its auxv), not while sstrap's own image is still in place */
+    if(pm){ u64 m=(*pm&~SIGSYS_BIT)|(1ul<<4); S4(NR_rt_sigprocmask,2,(i64)&m,0,8); }
     r=S3(NR_execve,self,nv,ne);
     if(pm){ u64 m=~SIGSYS_BIT; S4(NR_rt_sigprocmask,2,(i64)&m,0,8); }
     if(G_debug){wr("[sstrap] execve self '");wr(sp);wr("' -> ");wrn(r);wr(" (self now '");wr(self);wr("')\n");}
@@ -495,6 +523,7 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   case NR_newfstatat: ret=x_fstatat(a0,(const char*)a1,(struct kstat*)a2,a3); break;
   case NR_faccessat: ret=x_faccessat(a0,(const char*)a1,a2,a3); break;
   case NR_openat:
+    if(!(a2&(0x3|0x40|0x200|0x200000|0x400000))&&(ret=fake_auxv((const char*)a1))>0) break;
     if(!(a2&(0x3|0x40|0x200|0x200000|0x400000))) ret=x_openat(a0,(const char*)a1,a2,a3);
     else if(is_shm((const char*)a1)){ p=v2p((const char*)a1,b1,4096,&e); ret=e?e:S4(NR_openat,a0,p,a2,a3); }
     else ret=SL(NR_openat,a0,a1,a2,a3,0);   /* writes/creates: supervisor policy */
@@ -791,15 +820,17 @@ void __attribute__((noreturn)) cmain(u64*sp){
   u64 words=1+pargc+1+envc+1+(naux+1)*2;
   u64*nsp=(u64*)(((u64)m+ssz-256-words*8)&~15ul);
   u64*w=nsp; *w++=pargc; for(i64 i=0;i<pargc;i++)*w++=(u64)pargv[i]; *w++=0;
-  int tme=0; for(i64 i=0;i<envc;i++){ if(spre(envp[i],"SSTRAP_TM="))tme=1; else if(!spre(envp[i],"SSTRAP_X="))*w++=(u64)envp[i]; } *w++=0;
+  int tme=0,tb=0; for(i64 i=0;i<envc;i++){ if(spre(envp[i],"SSTRAP_TM="))tme=1; else if(spre(envp[i],"SSTRAP_TB="))tb=1; else if(!spre(envp[i],"SSTRAP_X="))*w++=(u64)envp[i]; } *w++=0;
   for(u64 i=0;i<naux;i++){ u64 t=auxv[i*2],v=auxv[i*2+1];
     switch(t){ case AT_PHDR:v=P.phdr;break; case AT_PHNUM:v=P.phnum;break; case AT_PHENT:v=sizeof(Phdr);break;
       case AT_ENTRY:v=P.entry;break; case AT_BASE:v=ibase;break; case AT_EXECFN:v=(u64)G_execfn;break; }
     *w++=t; *w++=v; }
   *w++=AT_NULL; *w++=0;
+  { u64*av=w-2*(naux+1); u64 k=2*(naux+1); if(k>2*64)k=2*64; for(u64 i=0;i<k;i++)G_auxv[2+i]=av[i]; G_auxv[1]=k; G_auxv[0]=AUXV_MAGIC; }
   if(tme){ S4(117,0,0,0,0); u64 ub=1ul<<4, om=0; S4(NR_rt_sigprocmask,1,(i64)&ub,(i64)&om,8);
     S3(131/*tgkill*/,S0(NR_getpid),S0(178),5/*SIGTRAP: the exec stop the kernel would have sent*/);
     S4(NR_rt_sigprocmask,2,(i64)&om,0,8); }
+  if(reexec&&!tb){ u64 ub=1ul<<4; S4(NR_rt_sigprocmask,1/*UNBLOCK*/,(i64)&ub,0,8); }
   jump_to((u64)nsp,entry);
 }
 __asm__(".text\n.global _start\n_start:\n mov x0, sp\n and sp, x0, #~15\n bl cmain\n");

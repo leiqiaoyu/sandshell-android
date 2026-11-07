@@ -583,6 +583,15 @@ static void install_filter(void){
   f[n++]=JUMP(BPF_JMP|BPF_JGE|BPF_K,REGION_LOW_LIMIT,1,0);
   f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);                /* issued by sstrap itself */
   f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,0);                         /* nr */
+  /* socket(AF_NETLINK, *, NETLINK_AUDIT): Android answers EACCES and shadow's groupadd/useradd abort on
+     anything but "not supported" -> report EPROTONOSUPPORT like a kernel without audit */
+  f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,198,0,6);
+  f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,16);
+  f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,16,0,3);
+  f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,32);
+  f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,9,0,1);
+  f[n++]=STMT(BPF_RET|BPF_K,0x00050000u|93);
+  f[n++]=STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
   f[n++]=JUMP(BPF_JMP|BPF_JEQ|BPF_K,220,0,4);                   /* clone(CLONE_VFORK) -> trap */
   f[n++]=STMT(BPF_LD|BPF_W|BPF_ABS,16);
   f[n++]=JUMP(BPF_JMP|BPF_JSET|BPF_K,0x4000,0,1);

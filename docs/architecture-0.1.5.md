@@ -1,4 +1,4 @@
-# Sandshell 0.1.5 架构总览（rc12，2026-11-08）
+# Sandshell 0.1.5 架构总览（0.1.5 正式版，2026-11-08）
 
 目的：给代码审查用的一张"地图"。标出每层是什么、谁写的（开源/闭源/二进制补丁）、哪里重复、哪里是历史包袱。
 
@@ -13,7 +13,7 @@
 │        │ JNI                                                                                                  │
 │  [libtermux.so]  建 PTY，fork+exec 第一个进程                                                                 │
 │        │                                                                                                      │
-│  [libdebian_runtime.so  = supervisor，闭源 + 机器码"洞"补丁 t13…t18]                                          │
+│  [libdebian_runtime.so  = supervisor，闭源 + 机器码"洞"补丁 t13…t19]                                          │
 │     · 装 seccomp 过滤器 #1：路径类 syscall → USER_NOTIF（由 supervisor 线程代办，虚拟路径→物理路径，写策略白名单）  │
 │       get*uid → 0；nr≥260 大多 ENOSYS；IP 落在 0x60 区段（sstrap）→ 放行                                       │
 │     · ADDFD 回填文件描述符；fakeroot 注册表；symlink 只放行固定形状                                              │
@@ -89,7 +89,7 @@ exec 一共被 4 层碰过：hostenv、libdebian_exec/libss_exec_real、spawn、
 
 ## 5. 史山清单（审查优先级）
 
-1. **闭源 supervisor + 机器码洞补丁**（t13f 分类器、t16 O_PATH、t17 CLOEXEC、t18 BPF）。每个补丁都只能反汇编验证，模拟器跑不了它。长期：用开源实现替换（sstrap 已承担热路径，可逐步把 USER_NOTIF 部分也搬过来）。
+1. **闭源 supervisor + 机器码洞补丁**（t13f 分类器、t16 O_PATH、t17 CLOEXEC、t18 BPF、t19 PTY 槽位 4→8）。每个补丁都只能反汇编验证，模拟器跑不了它。长期：用开源实现替换（sstrap 已承担热路径，可逐步把 USER_NOTIF 部分也搬过来）。
 2. **闭源 libss_exec_real**：仍带 node-musl 分支、DEBIAN_LD_PATH/python3.9 特判。rc12 摘了 BusyBox 换名；其余遗留应整体换成开源 exec 层（sstrap 已有自己的 loader，可直接接管）。
 3. **bashrc 9.4k 行**：部署器 + 每一代迁移清理（musl、bullseye、node-wall-probe…）+ 31 个内嵌载荷。建议拆成：小 bashrc + 版本化的载荷包（一个 tar，按 manifest 部署），迁移代码按版本号过期删除。
 4. **exec 四层叠加**（见第 3 节）：目标是只剩 sstrap 一层 + spawn。
@@ -102,3 +102,9 @@ exec 一共被 4 层碰过：hostenv、libdebian_exec/libss_exec_real、spawn、
 - 测试版：0.1.5-rcN（versionCode 1020+N），构建脚本 build/surgery-015-rcN.py（对上一版 APK 做"手术"替换资产/库/dex）。
 - sstrap：tools/sstrap（dev-0.1.5 分支），bashrc 内嵌其 sha。
 - 回归：tools/ssprobe/parity.sh（47 项，对照 Termux+proot）；dpkg 维护脚本上下文探针 tools/ssprobe/ss-ctx。
+
+## 0.1.5 正式版相对 rc12 的变化
+
+- **会话上限 4 → 8**：真正的上限在 `libdebian_runtime.so` 的 `nativeStartPtySession`（0x6f10），静态 4 个槽位，满了返回 -3；`DebianPtyManager.create` 抛异常，`TermuxService.createTermuxSession` 吞掉，界面"没反应"。t19 把槽表迁到 bss 0x19000（stride 0x1078，8 槽，id = gen<<3 | idx），重写起始搜索与 once-init 循环，末个 PT_LOAD 的 memsz 扩大。Java 层 `MAX_SESSIONS = 8` 不变。补丁脚本：`scripts/t15/runtime-pty-slots-8.py`。
+- **sstrap**：at 族系统调用的 dirfd 只看低 32 位（glibc `syscall()` 变参把 AT_FDCWD 零扩展，旧版因此不翻译路径 → groupadd 锁文件 ENOENT）；rename 一边绝对一边相对时先把相对路径绝对化再交给 supervisor（supervisor 对这种组合返回 EROFS，导致 update-ca-certificates 失败、curl error 60）。
+- **libss_exec_real**：BusyBox 换名分支已摘除，dpkg 维护脚本里的 `mv`/`ls` 是 GNU coreutils。

@@ -449,6 +449,11 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
   (void)sig;
   u64*R=uc->regs; i64 nr=si->syscall; i64 ret=-ENOSYS;
   i64 a0=R[0],a1=R[1],a2=R[2],a3=R[3],a4=R[4];
+  /* dirfd args are C ints: a caller going through glibc syscall() varargs may leave them zero-extended
+     (0x00000000ffffff9c), so compare the low 32 bits only (kernel does the same) */
+  switch(nr){ case 37: case 38: case 276: a2=(int)a2; /* fallthrough */
+    case 56: case 35: case 79: case 48: case 291: case 439: case 53: case 452: case 437: case 33: case 34:
+    case 78: case 88: case 54: case 281: a0=(int)a0; break; case 36: a1=(int)a1; break; }
   char*b1=pool_get(); if(!b1){ R[0]=(u64)-12; return; } char*b2=b1+4096; i64 e; const char*p;
   if(G_debug>1){char t[160];int k=0;const char*h="[> ";while(*h)t[k++]=*h++; i64 tid=S1(178,0); char d[24];int m=0; do{d[m++]='0'+tid%10;tid/=10;}while(tid); while(m)t[k++]=d[--m]; t[k++]=' '; i64 x=nr; m=0; do{d[m++]='0'+x%10;x/=10;}while(x); while(m)t[k++]=d[--m]; t[k++]='\n'; S3(NR_write,2,(i64)t,k);}
   switch(nr){

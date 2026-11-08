@@ -4,6 +4,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+> **2026-11-08 — 0.1.5: closer to Termux + proot Debian.** A new in-process syscall layer (`sstrap`, source in `tools/sstrap`) runs every interactive shell: `stat`/`open`/`access`/`readlink` no longer round-trip through the supervisor. Added: hard-link emulation (`ln`, git, dpkg lock files), `utimensat`, `/dev/shm` and POSIX semaphores (Python multiprocessing, venv), clean process names in `ps`, gdb (breakpoints, run/step), fakeroot (tcp variant by default), Go and Rust toolchains, man pages (`sandshell-fix-man` for older installs). Fixed: `dpkg` maintainer scripts got BusyBox `mv`/`ls` instead of GNU coreutils; `groupadd` lock failures (openssh-client); `update-ca-certificates` failing with EROFS, which left curl with error 60; terminal fling scrolling; at most 4 terminal sessions (now 8). Device parity suite (0.1.5 test builds): 47/47. Public builds bundle no agent or harness; glibc Node 22 / npm stay.
+>
 > **2026-11-01 — 0.1.4: Claude Code tools work.** Native (Bun-compiled) programs such as Claude Code open files with `O_PATH`; the supervisor's `openat` handler injected those through `SECCOMP_IOCTL_NOTIF_ADDFD`, which the kernel refuses for `O_PATH` files, so every such open returned `EBADF` and Claude Code's Write/Bash tools hung. 0.1.4 opens them as non-blocking read-only instead. Device-verified: Claude Code 2.1.316 Write, Bash, `apt install git` from inside Claude Code, and a full git init/edit/commit/diff workflow. Also: `ln -s` with absolute targets stores the in-rootfs path (Android paths such as `/dev`, `/proc`, `/sdcard` stay as written); the Bullseye rollback backup moves out of `/root` to app storage and stale rootfs archives are deleted; musl-era assets and deploy code are gone; the PTY bashrc shrinks from 3.23 MB to 0.69 MB. **Public builds no longer bundle opencode** (0.1.3 shipped one by mistake, an older Bun with a brotli vulnerability); upgrading removes that bundled copy, its config stays, and `npm i -g opencode-ai` is untouched.
 >
 > **2026-10-25 — 0.1.3: Debian 13 trixie.** The userland moves from Debian 11 Bullseye to **Debian 13 trixie (ARM64, glibc 2.41)**. Existing installs migrate on first launch: the old Bullseye rootfs is kept aside as a rollback backup (`/root/.bullseye-rootfs`), `/root` and `/home` are carried over, and the manually installed package list is saved for reinstall. Device-verified on the 0.1.3 development builds (t13j–t13k): `apt update` / `apt install` (jq, python3 3.13.5), `apt --fix-broken install`, Node.js with npm 10.9.9 including global installs, relative and absolute symlinks, directory `chmod`, `python3 -m http.server` + `curl localhost`, and `npx @deepseek-ai/dsh web` (DeepSeek Harness). Design notes: [docs/t13-trixie.md](docs/t13-trixie.md).
@@ -140,11 +142,11 @@ When marketing this project, the accurate phrasing is: "seccomp `USER_NOTIF` pat
 
 ## Getting Started
 
-**Current release: [0.1.4](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.4) (2026-11-01), Debian 13 trixie.** Download `sandshell-v0.1.4.apk` from the release page.
+**Current release: [0.1.5](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.5) (2026-11-08), Debian 13 trixie.** Download `sandshell-v0.1.5.apk` from the release page.
 
-- APK SHA-256: `068ee97722d12c54c2df340433b59b556316417043e4af42264aab6821a91906`
+- APK SHA-256: `34ffc37de32c0320244a0ebebcffa29e7d504101e012709ea5f3b62f44e8227d`
 - Signing certificate SHA-256: `77077a32d902cdae4a8a04860071070e0cab8f26673f847bcbd61cd62cb69920`
-- `dev.sandshell.core`, versionName 0.1.4, versionCode 1020. Installs over earlier Sandshell builds signed with the same key; an existing Bullseye rootfs is migrated to trixie on first launch, with the old one kept as a rollback backup in app storage until you delete it.
+- `dev.sandshell.core`, versionName 0.1.5, versionCode 1034. Installs over earlier Sandshell builds signed with the same key; an existing Bullseye rootfs is migrated to trixie on first launch, with the old one kept as a rollback backup in app storage until you delete it.
 
 The history below describes the original 0.1 release.
 

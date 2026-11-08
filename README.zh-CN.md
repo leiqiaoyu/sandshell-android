@@ -4,6 +4,8 @@
 
 [English](README.md) | **简体中文**
 
+> **2026-11-08 — 0.1.5：向 Termux + proot Debian 看齐。** 新增进程内系统调用层（`sstrap`，源码在 `tools/sstrap`），交互终端默认跑在它下面：`stat`/`open`/`access`/`readlink` 不再每次绕监督者。新增：硬链接模拟（`ln`、git、dpkg 锁文件）、`utimensat`、`/dev/shm` 与 POSIX 信号量（Python multiprocessing、venv）、`ps` 显示干净的进程名、gdb（断点、run/step）、fakeroot（默认 tcp 版）、Go 与 Rust 工具链、手册页（旧安装运行 `sandshell-fix-man`）。修复：dpkg 维护脚本拿到的是 BusyBox 的 `mv`/`ls` 而非 GNU coreutils；`groupadd` 锁文件失败（openssh-client）；`update-ca-certificates` 报 EROFS 导致 curl error 60；终端快速滑动；终端最多 4 个会话（现为 8 个）。真机对照测试（0.1.5 测试构建）47/47。公开版不附带任何 agent 或 harness，保留 glibc Node 22 / npm。
+>
 > **2026-11-01 — 0.1.4：Claude Code 工具调用可用。** Claude Code 这类 Bun 编译的原生程序会用 `O_PATH` 打开文件；监督者的 `openat` 处理通过 `SECCOMP_IOCTL_NOTIF_ADDFD` 注入文件描述符，而内核拒绝注入 `O_PATH` 文件，于是这类打开全部返回 `EBADF`，Claude Code 的 Write/Bash 工具卡死。0.1.4 改为以非阻塞只读方式打开。真机验证：Claude Code 2.1.316 的 Write、Bash、在 Claude Code 内 `apt install git`，以及完整的 git init/编辑/提交/diff 流程。另外：`ln -s` 绝对目标存 rootfs 内路径（`/dev`、`/proc`、`/sdcard` 等安卓路径保持原样）；Bullseye 回滚备份移出 `/root` 放到应用存储，过期 rootfs 包自动删除；移除 musl 时代资源与部署代码；终端 bashrc 从 3.23 MB 缩到 0.69 MB。**公开版不再附带 opencode**（0.1.3 误带了一个，其 Bun 版本有 brotli 漏洞）；升级会删除那份内置副本，配置保留，`npm i -g opencode-ai` 装的不受影响。
 >
 > **2026-10-25 — 0.1.3：Debian 13 trixie。** 用户态从 Debian 11 Bullseye 升级到 **Debian 13 trixie（ARM64，glibc 2.41）**。已有安装在首次启动时自动迁移：旧 Bullseye rootfs 保留为回滚备份（`/root/.bullseye-rootfs`），`/root` 与 `/home` 原样带过来，手动安装的软件包清单另存以便重装。0.1.3 开发构建（t13j–t13k）真机已验证：`apt update` / `apt install`（jq、python3 3.13.5）、`apt --fix-broken install`、Node.js + npm 10.9.9（含全局安装）、相对/绝对符号链接、目录 `chmod`、`python3 -m http.server` + `curl localhost`、`npx @deepseek-ai/dsh web`（DeepSeek Harness）。设计记录见 [docs/t13-trixie.md](docs/t13-trixie.md)。
@@ -140,11 +142,11 @@ Debian 工具链期待 `root`。监督进程对身份查询呈现 uid/gid 0，�
 
 ## 安装与使用
 
-**当前版本：[0.1.4](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.4)（2026-11-01），Debian 13 trixie。** 在发布页下载 `sandshell-v0.1.4.apk`。
+**当前版本：[0.1.5](https://github.com/leiqiaoyu/sandshell-android/releases/tag/v0.1.5)（2026-11-08），Debian 13 trixie。** 在发布页下载 `sandshell-v0.1.5.apk`。
 
-- APK SHA-256：`068ee97722d12c54c2df340433b59b556316417043e4af42264aab6821a91906`
+- APK SHA-256：`34ffc37de32c0320244a0ebebcffa29e7d504101e012709ea5f3b62f44e8227d`
 - 签名证书 SHA-256：`77077a32d902cdae4a8a04860071070e0cab8f26673f847bcbd61cd62cb69920`
-- `dev.sandshell.core`，versionName 0.1.4，versionCode 1020。可覆盖安装同一签名的旧 Sandshell 构建；已有的 Bullseye rootfs 首次启动迁移到 trixie，旧的作为回滚备份留在应用存储里，直到你删除。
+- `dev.sandshell.core`，versionName 0.1.5，versionCode 1034。可覆盖安装同一签名的旧 Sandshell 构建；已有的 Bullseye rootfs 首次启动迁移到 trixie，旧的作为回滚备份留在应用存储里，直到你删除。
 
 以下说明针对最初的 0.1 发行版。
 

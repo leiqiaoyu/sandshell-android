@@ -1,0 +1,50 @@
+digraph sandshell {
+  graph [rankdir=TB, fontname="Noto Sans CJK SC", fontsize=22, bgcolor="white", pad=0.4, nodesep=0.35, ranksep=0.45, newrank=true,
+         label="Sandshell 0.1.5 架构图（rc12）\n绿=开源  橙=闭源/二进制补丁  蓝=Android 平台  红框=史山热点", labelloc=t];
+  node  [shape=box, style="rounded,filled", fontname="Noto Sans CJK SC", fontsize=14, margin="0.18,0.08", penwidth=1.2];
+  edge  [fontname="Noto Sans CJK SC", fontsize=12, color="#555555"];
+
+  subgraph cluster_app {
+    label="Android App  dev.sandshell.core（APK）"; style="rounded"; color="#1565c0"; fontsize=18; penwidth=2;
+    ui   [label="UI（Termux 派生 Java）\nTerminalView · TerminalEmulator\nclasses14/21/24 逐版 smali 补丁", fillcolor="#ffe0b2", color="#d84315", penwidth=2.5];
+    termux [label="libtermux.so\n建 PTY，启动第一个进程", fillcolor="#c8e6c9"];
+    sup  [label="libdebian_runtime.so = supervisor\nseccomp 过滤器 #1（USER_NOTIF）\n虚拟路径→物理路径 · 写白名单 · uid 伪装 0\nnr≥260 多数 ENOSYS · 0x60 区段放行\n闭源 + 机器码洞补丁 t13…t18", fillcolor="#ffe0b2", color="#d84315", penwidth=2.5];
+    ld   [label="libdebian-ld.so\nDebian 13 ld.so（补丁版）\n所有 Debian 程序都由它启动", fillcolor="#ffe0b2"];
+    dexec[label="libdebian_exec.so（PTY 预载）\n崩溃报告 + exec/chdir 转发", fillcolor="#c8e6c9"];
+    xreal[label="libss_exec_real.so\nexec 改写：虚拟路径→loader 命令行 · #!\n遗留 node-musl 分支（BusyBox 换名 rc12 已摘）", fillcolor="#ffe0b2", color="#d84315", penwidth=2.5];
+    bund [label="libnode / libnpm / libopencode _glibc.so\n捆绑程序（打包成 .so 才能执行）", fillcolor="#eeeeee"];
+    bashrc_a [label="assets/debian-mobile-bashrc\n9.4k 行 · 31 个内嵌载荷", fillcolor="#c8e6c9", color="#d84315", penwidth=2.5];
+    rootfs_a [label="assets/rootfs.tar\nDebian 13 trixie arm64", fillcolor="#eeeeee"];
+  }
+
+  subgraph cluster_deb {
+    label="Debian 用户态  /data/user/0/dev.sandshell.core/files/debian = \"/\""; style="rounded"; color="#2e7d32"; fontsize=18; penwidth=2;
+    bash [label="bash + bashrc\n部署载荷(sha 幂等) · PATH/TZ · fakeroot-tcp\n带上 spawn/hostenv 重进一次 → exec 到 sstrap", fillcolor="#c8e6c9"];
+    sstrap [label="sstrap（开源，~1k 行 C，0x60 区段）\nseccomp 过滤器 #2 → SIGSYS 进程内处理（快 25–50×）\nstat/open 路径翻译 · l2s 硬链接仿真 · 自带 loader 接管 exec\n伪造 /proc exe·auxv · vfork/ptrace(gdb) · NETLINK_AUDIT", fillcolor="#a5d6a7", penwidth=2];
+    pre  [label="LD_PRELOAD 垫片（开源）\nspawn: posix_spawn 重做\nhostenv: 调 /system/bin 前剥 LD_*\nlinkcopy: 仅 dpkg，硬链接→复制 / EROFS 重试\nnoshm3 · glibc-g 一套", fillcolor="#c8e6c9", color="#d84315", penwidth=2.5];
+    prog [label="Debian 程序\napt · dpkg · gcc · python · node · git …", fillcolor="#ffffff"];
+  }
+
+  kernel [label="Linux 内核（Android SELinux：禁止硬链接、禁止 exec 应用数据文件）", fillcolor="#bbdefb", color="#1565c0"];
+
+  ui -> termux [label="JNI"];
+  termux -> sup;
+  rootfs_a -> bash [label="首次启动解包", style=dashed];
+  bashrc_a -> bash [label="source", style=dashed];
+  sup -> ld [label="execve(loader)"];
+  ld -> bash;
+  bash -> sstrap [label="exec"];
+  sstrap:sw -> prog:nw [label="装载/托管"];
+  prog -> pre [label="libc 调用", style=dashed];
+  pre -> dexec [label="exec*"];
+  dexec -> xreal;
+  xreal -> sstrap [label="execve 被 sstrap 捕获"];
+  prog:ne -> sstrap:s [label="syscall\n过滤器 #2", minlen=2, color="#2e7d32", fontcolor="#2e7d32"];
+  sstrap -> kernel [label="热路径：翻译后从 0x60 直发", color="#2e7d32", fontcolor="#2e7d32"];
+  sstrap -> sup [label="写类/少见路径类", color="#d84315", fontcolor="#d84315"];
+  sup -> kernel [label="USER_NOTIF 代办", color="#d84315", fontcolor="#d84315"];
+  bund -> prog [style=dotted, label="node/opencode"];
+
+  hot [shape=note, fillcolor="#ffebee", color="#c62828", fontsize=13, label="史山清单（审查顺序）\n1 闭源 supervisor + 机器码补丁 → 开源替换\n2 闭源 exec 层遗留分支 → 交给 sstrap loader\n3 bashrc 9.4k 行 → 小 bashrc + 版本化载荷包\n4 exec 被 4 层碰：hostenv · exec 层 · spawn · sstrap\n5 路径翻译 3 份：supervisor · sstrap · exec/linkcopy\n6 dex 逐版二进制补丁 → 源码 fork 重编\n7 glibc-g 平行环境 → 评估合并"];
+  kernel -> hot [style=invis];
+}

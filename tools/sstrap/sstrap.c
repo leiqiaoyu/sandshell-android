@@ -298,6 +298,13 @@ static i64 emu_getcwd(char*buf,u64 sz){
   i64 m=p2v(t,n-1); if((u64)m+1>sz)return -ERANGE; memcpy(buf,t,m); buf[m]=0; return m+1;
 }
 
+/* cwd-relative path (in a PB buffer) -> virtual absolute, in place */
+static i64 rel2abs(char*p){
+  u64 l=slen(p); char t[4096]; i64 n=emu_getcwd(t,sizeof t); if(n<0)return n; n--;
+  if((u64)n+1+l+1>PB)return -ENAMETOOLONG;
+  memmove(p+n+1,p,l+1); memcpy(p,t,n); if(n==1&&t[0]=='/'){ memmove(p+1,p+2,l+1); } else p[n]='/'; return 0;
+}
+
 static i64 emu_sockaddr(i64 nr,i64 fd,const u8*sa,i64 len){
   if(!sa||len<3||sa[0]!=1||sa[1]!=0||sa[2]!='/'||!G_plen) return S3(nr,fd,sa,len);
   char path[110]; i64 pl=len-2; if(pl>108)pl=108; memcpy(path,sa+2,pl); path[pl]=0;
@@ -487,7 +494,11 @@ static void handler(int sig,struct sinfo*si,struct uctx*uc){
       else { /* through the supervisor (it maps paths); private copies: it rewrites them in place */
         char*c1=m+10*PB,*c2=m+11*PB; u64 l1=slen((const char*)a1),l2=slen((const char*)a3);
         if(l1>=PB||l2>=PB) ret=-ENAMETOOLONG;
-        else { memcpy(c1,(const char*)a1,l1+1); memcpy(c2,(const char*)a3,l2+1); ret=SL(NR_renameat,a0,(i64)c1,a2,(i64)c2,0); } } }
+        else { memcpy(c1,(const char*)a1,l1+1); memcpy(c2,(const char*)a3,l2+1);
+          /* supervisor gets one absolute + one cwd-relative path wrong (EROFS: update-ca-certificates'
+             mv /etc/ssl/certs/x.new x): make the relative one absolute (virtual cwd) */
+          i64 ea=0; if(a0==AT_FDCWD&&a2==AT_FDCWD&&((c1[0]=='/')!=(c2[0]=='/'))) ea=rel2abs(c1[0]=='/'?c2:c1);
+          ret= ea? ea : SL(NR_renameat,a0,(i64)c1,a2,(i64)c2,0); } } }
     if(ret==0){ if(sl) l2s_repoint(a2,(const char*)a3,ss,m,sp_); if(dl) l2s_unlinked(ds,dp_); }
     l2s_free(m); break; }
   case NR_fchmodat2:
